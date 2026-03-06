@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "title": "Math",
+    "description": "I love Mathematics",
+    "category": "Book",
+    "tags": "[\"No tags\"]",
+    "isPublic": 1,
+    "version": 1,
+    "customIdFormat": "[{\"type\":\"sequence\",\"padding\":3}]",
+    "creatorId": 2,
+    "createdAt": "2026-02-19T15:42:50.008Z"
+  }
+]

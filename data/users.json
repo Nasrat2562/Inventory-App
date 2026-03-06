@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "email": "admin@example.com",
+    "name": "Admin",
+    "password": "$2a$10$SN33CHIUf710mks4P4j0m.z.sJ3RBrjPZsCZv0hn3s4CQ8pvGrOWi",
+    "isAdmin": true,
+    "isBlocked": false,
+    "theme": "light",
+    "language": "en",
+    "createdAt": "2026-02-19T15:19:41.791Z"
+  },
+  {
+    "id": 2,
+    "email": "nasratj35@gmail.com",
+    "name": "Nasrat",
+    "password": "$2a$10$RDi/yE6oXAi8UY/cQ/JndO6/vnb8HuWAMleHoIwU1ykaQ6ncO6VWC",
+    "isAdmin": false,
+    "isBlocked": false,
+    "theme": "light",
+    "createdAt": "2026-02-19T15:25:57.765Z"
+  }
+]
