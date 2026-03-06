@@ -1,0 +1,42 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "admin@example.com",
+      "name": "Admin",
+      "password": "$2a$10$UXrik7M9eBr//2ltzPmp/O7zrTzYmWJeYaoWKfiWljJ3neIIpzSua",
+      "isAdmin": 1,
+      "isBlocked": 0,
+      "theme": "light",
+      "language": "en"
+    },
+    {
+      "id": 2,
+      "email": "nasratj35@gmail.com",
+      "name": "Nasrat",
+      "password": "$2a$10$q6M5fA0QNupEtdssVYkEz.JxpWWSqmGgOM2JP2AKPsfcTF9.UAEmC",
+      "isAdmin": 0,
+      "isBlocked": 0,
+      "theme": "light",
+      "language": "en"
+    }
+  ],
+  "inventories": [
+    {
+      "id": 1,
+      "title": "Book",
+      "description": "A Ai book i needed",
+      "category": "Book",
+      "tags": "[]",
+      "isPublic": 1,
+      "version": 1,
+      "creatorId": 2,
+      "createdAt": "2026-02-19T14:40:53.468Z"
+    }
+  ],
+  "items": [],
+  "fields": [],
+  "comments": [],
+  "likes": [],
+  "access": []
+}
