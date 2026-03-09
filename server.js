@@ -19,15 +19,17 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Cloudinary config
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-});
+// Cloudinary config (optional)
+if (process.env.CLOUDINARY_CLOUD_NAME) {
+    cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET
+    });
+}
 
-// Google Auth
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+// Google Auth (optional)
+const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
 
 // ==================== DATABASE SETUP ====================
 const sequelize = new Sequelize({
@@ -36,7 +38,7 @@ const sequelize = new Sequelize({
     logging: false
 });
 
-// Define Models - Fixed to avoid duplicate columns
+// Define Models
 const User = sequelize.define('User', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     email: { type: DataTypes.STRING, unique: true, allowNull: false },
@@ -47,13 +49,16 @@ const User = sequelize.define('User', {
     isAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
     isBlocked: { type: DataTypes.BOOLEAN, defaultValue: false },
     theme: { type: DataTypes.STRING, defaultValue: 'light' },
-    language: { type: DataTypes.STRING, defaultValue: 'en' },
-    createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+    language: { type: DataTypes.STRING, defaultValue: 'en' }
+}, {
+    timestamps: true
 });
 
 const Category = sequelize.define('Category', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     name: { type: DataTypes.STRING, unique: true, allowNull: false }
+}, {
+    timestamps: true
 });
 
 const Inventory = sequelize.define('Inventory', {
@@ -61,100 +66,135 @@ const Inventory = sequelize.define('Inventory', {
     title: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
     category: { type: DataTypes.STRING, allowNull: false },
-    tags: { type: DataTypes.TEXT }, // JSON array
+    tags: { type: DataTypes.TEXT, defaultValue: '[]' },
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
     imageUrl: { type: DataTypes.STRING },
     customIdFormat: { type: DataTypes.TEXT, defaultValue: '[{"type":"sequence","padding":3}]' },
-    version: { type: DataTypes.INTEGER, defaultValue: 1 },
-    createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+    version: { type: DataTypes.INTEGER, defaultValue: 1 }
+}, {
+    timestamps: true
 });
-
-// Add creatorId after defining associations
-Inventory.belongsTo(User, { as: 'creator', foreignKey: 'creatorId' });
-User.hasMany(Inventory, { as: 'ownedInventories', foreignKey: 'creatorId' });
 
 const Field = sequelize.define('Field', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
-    type: { type: DataTypes.STRING, allowNull: false }, // text, textarea, number, checkbox, document
+    type: { type: DataTypes.STRING, allowNull: false },
     title: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
     showInTable: { type: DataTypes.BOOLEAN, defaultValue: false },
     order: { type: DataTypes.INTEGER, defaultValue: 0 }
+}, {
+    timestamps: true
 });
-
-// Field belongs to Inventory
-Field.belongsTo(Inventory, { foreignKey: 'inventoryId' });
-Inventory.hasMany(Field, { foreignKey: 'inventoryId' });
 
 const Item = sequelize.define('Item', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     customId: { type: DataTypes.STRING, allowNull: false },
-    data: { type: DataTypes.TEXT }, // JSON object with field values
+    data: { type: DataTypes.TEXT, defaultValue: '{}' },
     version: { type: DataTypes.INTEGER, defaultValue: 1 }
-});
-
-// Item belongs to Inventory and User
-Item.belongsTo(Inventory, { foreignKey: 'inventoryId' });
-Inventory.hasMany(Item, { foreignKey: 'inventoryId' });
-Item.belongsTo(User, { as: 'creator', foreignKey: 'createdBy' });
-User.hasMany(Item, { as: 'createdItems', foreignKey: 'createdBy' });
-
-// Add unique constraint for inventoryId + customId
-Item.addHook('beforeValidate', (item) => {
-    // This hook ensures we check for duplicates
+}, {
+    timestamps: true,
+    indexes: [
+        {
+            unique: true,
+            fields: ['inventoryId', 'customId']
+        }
+    ]
 });
 
 const Comment = sequelize.define('Comment', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     content: { type: DataTypes.TEXT, allowNull: false }
+}, {
+    timestamps: true
 });
-
-Comment.belongsTo(Inventory, { foreignKey: 'inventoryId' });
-Inventory.hasMany(Comment, { foreignKey: 'inventoryId' });
-Comment.belongsTo(Item, { foreignKey: 'itemId' });
-Item.hasMany(Comment, { foreignKey: 'itemId' });
-Comment.belongsTo(User, { foreignKey: 'userId' });
-User.hasMany(Comment, { foreignKey: 'userId' });
 
 const Like = sequelize.define('Like', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }
-});
-
-Like.belongsTo(Item, { foreignKey: 'itemId' });
-Item.hasMany(Like, { foreignKey: 'itemId' });
-Like.belongsTo(User, { foreignKey: 'userId' });
-User.hasMany(Like, { foreignKey: 'userId' });
-
-// Add unique constraint for itemId + userId
-Like.addHook('beforeValidate', (like) => {
-    // This hook ensures one like per user per item
+}, {
+    timestamps: true,
+    indexes: [
+        {
+            unique: true,
+            fields: ['itemId', 'userId']
+        }
+    ]
 });
 
 const Access = sequelize.define('Access', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }
+}, {
+    timestamps: true
 });
-
-Access.belongsTo(Inventory, { foreignKey: 'inventoryId' });
-Inventory.belongsToMany(User, { through: Access, as: 'writers', foreignKey: 'inventoryId' });
-User.belongsToMany(Inventory, { through: Access, as: 'accessibleInventories', foreignKey: 'userId' });
 
 const Tag = sequelize.define('Tag', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     name: { type: DataTypes.STRING, unique: true, allowNull: false },
     count: { type: DataTypes.INTEGER, defaultValue: 1 }
+}, {
+    timestamps: true
 });
+
+// Define ALL relationships
+// User - Inventory
+User.hasMany(Inventory, { as: 'ownedInventories', foreignKey: 'creatorId' });
+Inventory.belongsTo(User, { as: 'creator', foreignKey: 'creatorId' });
+
+// Inventory - Field
+Inventory.hasMany(Field, { foreignKey: 'inventoryId' });
+Field.belongsTo(Inventory, { foreignKey: 'inventoryId' });
+
+// Inventory - Item
+Inventory.hasMany(Item, { foreignKey: 'inventoryId' });
+Item.belongsTo(Inventory, { foreignKey: 'inventoryId' });
+
+// User - Item (creator)
+User.hasMany(Item, { as: 'createdItems', foreignKey: 'createdBy' });
+Item.belongsTo(User, { as: 'creator', foreignKey: 'createdBy' });
+
+// Inventory - Comment
+Inventory.hasMany(Comment, { foreignKey: 'inventoryId' });
+Comment.belongsTo(Inventory, { foreignKey: 'inventoryId' });
+
+// Item - Comment
+Item.hasMany(Comment, { foreignKey: 'itemId' });
+Comment.belongsTo(Item, { foreignKey: 'itemId' });
+
+// User - Comment
+User.hasMany(Comment, { foreignKey: 'userId' });
+Comment.belongsTo(User, { foreignKey: 'userId' });
+
+// Item - Like
+Item.hasMany(Like, { foreignKey: 'itemId' });
+Like.belongsTo(Item, { foreignKey: 'itemId' });
+
+// User - Like
+User.hasMany(Like, { foreignKey: 'userId' });
+Like.belongsTo(User, { foreignKey: 'userId' });
+
+// Inventory - User (writers) many-to-many
+Inventory.belongsToMany(User, { through: Access, as: 'writers', foreignKey: 'inventoryId' });
+User.belongsToMany(Inventory, { through: Access, as: 'accessibleInventories', foreignKey: 'userId' });
 
 // ==================== MIDDLEWARE ====================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, 'temp');
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir);
+}
+
 // Session
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    secret: process.env.SESSION_SECRET || 'default-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+    cookie: { 
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        httpOnly: true
+    }
 }));
 
 // Passport
@@ -189,12 +229,7 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // File upload
-const upload = multer({ dest: path.join(__dirname, 'temp') });
-
-// Ensure temp directory exists
-if (!fs.existsSync(path.join(__dirname, 'temp'))) {
-    fs.mkdirSync(path.join(__dirname, 'temp'));
-}
+const upload = multer({ dest: tempDir });
 
 // ==================== HELPER FUNCTIONS ====================
 function ensureAuth(req, res, next) {
@@ -228,7 +263,6 @@ async function generateCustomId(format, inventoryId) {
     let result = '';
     const parsedFormat = typeof format === 'string' ? JSON.parse(format) : format;
     
-    // Get existing items for sequence calculation
     const items = await Item.findAll({
         where: { inventoryId },
         order: [['createdAt', 'ASC']]
@@ -283,7 +317,18 @@ app.post('/auth/login', (req, res, next) => {
         
         req.logIn(user, (err) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, user });
+            res.json({ 
+                success: true, 
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    isAdmin: user.isAdmin,
+                    theme: user.theme,
+                    language: user.language,
+                    createdAt: user.createdAt
+                }
+            });
         });
     })(req, res, next);
 });
@@ -306,7 +351,18 @@ app.post('/auth/register', async (req, res) => {
         
         req.logIn(user, (err) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, user });
+            res.json({ 
+                success: true, 
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    isAdmin: user.isAdmin,
+                    theme: user.theme,
+                    language: user.language,
+                    createdAt: user.createdAt
+                }
+            });
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -314,6 +370,10 @@ app.post('/auth/register', async (req, res) => {
 });
 
 app.post('/auth/google', async (req, res) => {
+    if (!googleClient) {
+        return res.status(400).json({ error: 'Google login not configured' });
+    }
+    
     const { token } = req.body;
     
     try {
@@ -340,7 +400,17 @@ app.post('/auth/google', async (req, res) => {
         
         req.logIn(user, (err) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, user });
+            res.json({ 
+                success: true, 
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    isAdmin: user.isAdmin,
+                    theme: user.theme,
+                    language: user.language
+                }
+            });
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -369,7 +439,17 @@ app.post('/auth/facebook', async (req, res) => {
         
         req.logIn(user, (err) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, user });
+            res.json({ 
+                success: true, 
+                user: {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name,
+                    isAdmin: user.isAdmin,
+                    theme: user.theme,
+                    language: user.language
+                }
+            });
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -385,7 +465,15 @@ app.get('/auth/logout', (req, res) => {
 // ==================== USER ROUTES ====================
 app.get('/api/user', (req, res) => {
     if (req.user) {
-        res.json(req.user);
+        res.json({
+            id: req.user.id,
+            email: req.user.email,
+            name: req.user.name,
+            isAdmin: req.user.isAdmin,
+            theme: req.user.theme,
+            language: req.user.language,
+            createdAt: req.user.createdAt
+        });
     } else {
         res.status(401).json({ error: 'Not authenticated' });
     }
@@ -401,7 +489,6 @@ app.get('/api/user/inventories', ensureAuth, async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        // Get item counts
         const result = await Promise.all(inventories.map(async (inv) => {
             const itemCount = await Item.count({ where: { inventoryId: inv.id } });
             return {
@@ -428,8 +515,7 @@ app.get('/api/user/accessible', ensureAuth, async (req, res) => {
             }]
         });
         
-        // Get item counts
-        const result = await Promise.all(user.accessibleInventories.map(async (inv) => {
+        const result = await Promise.all((user.accessibleInventories || []).map(async (inv) => {
             const itemCount = await Item.count({ where: { inventoryId: inv.id } });
             return {
                 ...inv.toJSON(),
@@ -517,7 +603,6 @@ app.get('/api/categories', async (req, res) => {
         const categories = await Category.findAll();
         res.json(categories.map(c => c.name));
     } catch (err) {
-        // Fallback to default categories if table is empty
         res.json(['Equipment', 'Furniture', 'Book', 'Other']);
     }
 });
@@ -533,7 +618,6 @@ app.get('/api/inventories', async (req, res) => {
             limit: 10
         });
         
-        // Get item counts
         const result = await Promise.all(inventories.map(async (inv) => {
             const itemCount = await Item.count({ where: { inventoryId: inv.id } });
             return {
@@ -556,7 +640,6 @@ app.get('/api/inventories/popular', async (req, res) => {
             ]
         });
         
-        // Get item counts and sort
         const result = await Promise.all(inventories.map(async (inv) => {
             const itemCount = await Item.count({ where: { inventoryId: inv.id } });
             return {
@@ -633,7 +716,6 @@ app.get('/api/inventories/:id', async (req, res) => {
         
         if (!inventory) return res.status(404).json({ error: 'Inventory not found' });
         
-        // Get items
         const items = await Item.findAll({
             where: { inventoryId: id },
             include: [
@@ -642,14 +724,12 @@ app.get('/api/inventories/:id', async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
         
-        // Get comments
         const comments = await Comment.findAll({
             where: { inventoryId: id },
             include: [{ model: User, attributes: ['id', 'name'] }],
             order: [['createdAt', 'ASC']]
         });
         
-        // Get likes for items
         const itemIds = items.map(i => i.id);
         const likes = await Like.findAll({
             where: { itemId: { [Op.in]: itemIds } }
@@ -685,7 +765,6 @@ app.post('/api/inventories', ensureAuth, async (req, res) => {
             creatorId: req.user.id
         });
         
-        // Update tags
         if (tags && tags.length) {
             for (const tagName of tags) {
                 const [tag] = await Tag.findOrCreate({
@@ -710,9 +789,11 @@ app.post('/api/inventories/:id/image', ensureAuth, upload.single('image'), async
             return res.status(403).json({ error: 'Forbidden' });
         }
         
-        const result = await cloudinary.uploader.upload(req.file.path);
+        if (!process.env.CLOUDINARY_CLOUD_NAME) {
+            return res.status(400).json({ error: 'Cloudinary not configured' });
+        }
         
-        // Clean up temp file
+        const result = await cloudinary.uploader.upload(req.file.path);
         fs.unlinkSync(req.file.path);
         
         inventory.imageUrl = result.secure_url;
@@ -805,7 +886,6 @@ app.post('/api/inventories/:id/fields', ensureAuth, async (req, res) => {
             return res.status(403).json({ error: 'Forbidden' });
         }
         
-        // Check field limits (max 3 per type)
         const fieldCount = await Field.count({
             where: { inventoryId, type }
         });
@@ -913,20 +993,17 @@ app.post('/api/inventories/:id/items', ensureAuth, async (req, res) => {
         const inventory = await Inventory.findByPk(inventoryId);
         if (!inventory) return res.status(404).json({ error: 'Inventory not found' });
         
-        // Check write access
         const hasAccess = await canWriteInventory(req, inventoryId);
         
         if (!hasAccess) {
             return res.status(403).json({ error: 'Forbidden' });
         }
         
-        // Generate custom ID if not provided
         let finalCustomId = customId;
         if (!finalCustomId) {
             finalCustomId = await generateCustomId(inventory.customIdFormat, inventoryId);
         }
         
-        // Check for duplicate
         const existing = await Item.findOne({
             where: { inventoryId, customId: finalCustomId }
         });
@@ -956,7 +1033,6 @@ app.put('/api/items/:id', ensureAuth, async (req, res) => {
         const item = await Item.findByPk(id);
         if (!item) return res.status(404).json({ error: 'Item not found' });
         
-        // Check write access
         const hasAccess = await canWriteInventory(req, item.inventoryId);
         
         if (!hasAccess) {
@@ -967,7 +1043,6 @@ app.put('/api/items/:id', ensureAuth, async (req, res) => {
             return res.status(409).json({ error: 'Conflict - please refresh' });
         }
         
-        // Check for duplicate custom ID
         if (customId !== item.customId) {
             const existing = await Item.findOne({
                 where: {
@@ -1000,7 +1075,6 @@ app.delete('/api/items/:id', ensureAuth, async (req, res) => {
         const item = await Item.findByPk(id);
         if (!item) return res.status(404).json({ error: 'Item not found' });
         
-        // Check write access
         const hasAccess = await canWriteInventory(req, item.inventoryId);
         
         if (!hasAccess) {
@@ -1098,7 +1172,7 @@ app.get('/api/inventories/:id/access/search', ensureAuth, async (req, res) => {
                     { name: { [Op.like]: `%${q}%` } },
                     { email: { [Op.like]: `%${q}%` } }
                 ],
-                id: { [Op.ne]: req.user.id } // Exclude current user
+                id: { [Op.ne]: req.user.id }
             },
             attributes: ['id', 'name', 'email'],
             limit: 10
@@ -1169,7 +1243,6 @@ app.get('/api/inventories/:id/stats', async (req, res) => {
             textFrequencies: {}
         };
         
-        // Numeric fields stats
         const numericFields = fields.filter(f => f.type === 'number');
         for (const field of numericFields) {
             const values = items
@@ -1189,7 +1262,6 @@ app.get('/api/inventories/:id/stats', async (req, res) => {
             }
         }
         
-        // Text field frequencies
         const textFields = fields.filter(f => f.type === 'text' || f.type === 'textarea');
         for (const field of textFields) {
             const frequencies = {};
@@ -1224,7 +1296,8 @@ app.get('/api/tags', async (req, res) => {
         });
         res.json(tags);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('Tags error:', err);
+        res.json([]);
     }
 });
 
@@ -1256,28 +1329,25 @@ io.on('connection', (socket) => {
     socket.on('leave-inventory', (inventoryId) => {
         socket.leave(`inventory-${inventoryId}`);
     });
-    
-    socket.on('disconnect', () => {
-        console.log('User disconnected');
-    });
 });
 
 // ==================== INITIALIZE DATABASE ====================
 async function initializeDatabase() {
-    // Sync all models
-    await sequelize.sync({ force: true });
-    
-    // Create default categories
-    await Category.bulkCreate([
-        { name: 'Equipment' },
-        { name: 'Furniture' },
-        { name: 'Book' },
-        { name: 'Other' }
-    ]);
-    
-    // Create default admin
-    const adminExists = await User.findOne({ where: { email: 'admin@example.com' } });
-    if (!adminExists) {
+    try {
+        // Sync all models
+        await sequelize.sync({ force: true });
+        console.log('✅ Database synced');
+
+        // Create categories
+        await Category.bulkCreate([
+            { name: 'Equipment' },
+            { name: 'Furniture' },
+            { name: 'Book' },
+            { name: 'Other' }
+        ]);
+        console.log('✅ Categories created');
+
+        // Create admin user
         const hashedPassword = await bcrypt.hash('admin123', 10);
         await User.create({
             email: 'admin@example.com',
@@ -1285,9 +1355,29 @@ async function initializeDatabase() {
             password: hashedPassword,
             isAdmin: true
         });
+        console.log('✅ Admin user created: admin@example.com / admin123');
+
+        // Create test user
+        const testPassword = await bcrypt.hash('test123', 10);
+        await User.create({
+            email: 'test@example.com',
+            name: 'Test User',
+            password: testPassword
+        });
+        console.log('✅ Test user created: test@example.com / test123');
+
+        // Create sample tags
+        await Tag.bulkCreate([
+            { name: 'electronics', count: 0 },
+            { name: 'office', count: 0 },
+            { name: 'furniture', count: 0 },
+            { name: 'books', count: 0 }
+        ]);
+        console.log('✅ Sample tags created');
+
+    } catch (err) {
+        console.error('Database initialization error:', err);
     }
-    
-    console.log('✅ Database initialized');
 }
 
 // ==================== SERVE HTML ====================
@@ -1305,11 +1395,10 @@ initializeDatabase().then(() => {
         console.log('='.repeat(60));
         console.log(`📱 Server: http://localhost:${PORT}`);
         console.log(`👤 Admin: admin@example.com / admin123`);
+        console.log(`👤 Test: test@example.com / test123`);
         console.log('='.repeat(60));
         console.log('✅ Features implemented:');
-        console.log('   • SQLite database with Sequelize ORM');
         console.log('   • User authentication & admin panel');
-        console.log('   • Google & Facebook OAuth ready');
         console.log('   • Custom ID builder with drag & drop');
         console.log('   • Custom fields (text, textarea, number, checkbox, document)');
         console.log('   • Items with like/comment functionality');
@@ -1321,9 +1410,7 @@ initializeDatabase().then(() => {
         console.log('   • Light/dark theme');
         console.log('   • Auto-save every 7 seconds');
         console.log('   • Optimistic locking');
-        console.log('   • Responsive design');
         console.log('   • Cloudinary image upload');
-        console.log('   • Full-text search');
         console.log('='.repeat(60));
     });
 });
