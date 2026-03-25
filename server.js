@@ -10,26 +10,13 @@ const { Server } = require('socket.io');
 const fs = require('fs');
 const multer = require('multer');
 const { Sequelize, DataTypes, Op } = require('sequelize');
-const cloudinary = require('cloudinary').v2;
-const { OAuth2Client } = require('google-auth-library');
-const fetch = require('node-fetch');
+const axios = require('axios');
+const querystring = require('querystring');
+const crypto = require('crypto');
 
-// ==================== CONFIGURATION ====================
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-
-// Cloudinary config (optional)
-if (process.env.CLOUDINARY_CLOUD_NAME) {
-    cloudinary.config({
-        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: process.env.CLOUDINARY_API_KEY,
-        api_secret: process.env.CLOUDINARY_API_SECRET
-    });
-}
-
-// Google Auth (optional)
-const googleClient = process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
 
 // ==================== DATABASE SETUP ====================
 const sequelize = new Sequelize({
@@ -38,18 +25,21 @@ const sequelize = new Sequelize({
     logging: false
 });
 
-// Define Models
+// Define Models with additional fields for integrations
 const User = sequelize.define('User', {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     email: { type: DataTypes.STRING, unique: true, allowNull: false },
     name: { type: DataTypes.STRING, allowNull: false },
     password: { type: DataTypes.STRING },
-    googleId: { type: DataTypes.STRING },
-    facebookId: { type: DataTypes.STRING },
     isAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
     isBlocked: { type: DataTypes.BOOLEAN, defaultValue: false },
     theme: { type: DataTypes.STRING, defaultValue: 'light' },
-    language: { type: DataTypes.STRING, defaultValue: 'en' }
+    language: { type: DataTypes.STRING, defaultValue: 'en' },
+    // Salesforce integration fields
+    salesforceAccountId: { type: DataTypes.STRING },
+    salesforceContactId: { type: DataTypes.STRING },
+    syncedToSalesforce: { type: DataTypes.BOOLEAN, defaultValue: false },
+    syncedAt: { type: DataTypes.DATE }
 }, {
     timestamps: true
 });
@@ -70,7 +60,9 @@ const Inventory = sequelize.define('Inventory', {
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
     imageUrl: { type: DataTypes.STRING },
     customIdFormat: { type: DataTypes.TEXT, defaultValue: '[{"type":"sequence","padding":3}]' },
-    version: { type: DataTypes.INTEGER, defaultValue: 1 }
+    version: { type: DataTypes.INTEGER, defaultValue: 1 },
+    // Odoo integration field
+    apiToken: { type: DataTypes.STRING }
 }, {
     timestamps: true
 });
@@ -135,43 +127,33 @@ const Tag = sequelize.define('Tag', {
 });
 
 // Define ALL relationships
-// User - Inventory
 User.hasMany(Inventory, { as: 'ownedInventories', foreignKey: 'creatorId' });
 Inventory.belongsTo(User, { as: 'creator', foreignKey: 'creatorId' });
 
-// Inventory - Field
 Inventory.hasMany(Field, { foreignKey: 'inventoryId' });
 Field.belongsTo(Inventory, { foreignKey: 'inventoryId' });
 
-// Inventory - Item
 Inventory.hasMany(Item, { foreignKey: 'inventoryId' });
 Item.belongsTo(Inventory, { foreignKey: 'inventoryId' });
 
-// User - Item (creator)
 User.hasMany(Item, { as: 'createdItems', foreignKey: 'createdBy' });
 Item.belongsTo(User, { as: 'creator', foreignKey: 'createdBy' });
 
-// Inventory - Comment
 Inventory.hasMany(Comment, { foreignKey: 'inventoryId' });
 Comment.belongsTo(Inventory, { foreignKey: 'inventoryId' });
 
-// Item - Comment
 Item.hasMany(Comment, { foreignKey: 'itemId' });
 Comment.belongsTo(Item, { foreignKey: 'itemId' });
 
-// User - Comment
 User.hasMany(Comment, { foreignKey: 'userId' });
 Comment.belongsTo(User, { foreignKey: 'userId' });
 
-// Item - Like
 Item.hasMany(Like, { foreignKey: 'itemId' });
 Like.belongsTo(Item, { foreignKey: 'itemId' });
 
-// User - Like
 User.hasMany(Like, { foreignKey: 'userId' });
 Like.belongsTo(User, { foreignKey: 'userId' });
 
-// Inventory - User (writers) many-to-many
 Inventory.belongsToMany(User, { through: Access, as: 'writers', foreignKey: 'inventoryId' });
 User.belongsToMany(Inventory, { through: Access, as: 'accessibleInventories', foreignKey: 'userId' });
 
@@ -309,6 +291,14 @@ async function generateCustomId(format, inventoryId) {
     return result;
 }
 
+async function getAdminEmails() {
+    const admins = await User.findAll({
+        where: { isAdmin: true },
+        attributes: ['email']
+    });
+    return admins.map(a => a.email);
+}
+
 // ==================== AUTH ROUTES ====================
 app.post('/auth/login', (req, res, next) => {
     passport.authenticate('local', (err, user, info) => {
@@ -326,7 +316,8 @@ app.post('/auth/login', (req, res, next) => {
                     isAdmin: user.isAdmin,
                     theme: user.theme,
                     language: user.language,
-                    createdAt: user.createdAt
+                    createdAt: user.createdAt,
+                    syncedToSalesforce: user.syncedToSalesforce
                 }
             });
         });
@@ -360,94 +351,8 @@ app.post('/auth/register', async (req, res) => {
                     isAdmin: user.isAdmin,
                     theme: user.theme,
                     language: user.language,
-                    createdAt: user.createdAt
-                }
-            });
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/auth/google', async (req, res) => {
-    if (!googleClient) {
-        return res.status(400).json({ error: 'Google login not configured' });
-    }
-    
-    const { token } = req.body;
-    
-    try {
-        const ticket = await googleClient.verifyIdToken({
-            idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID
-        });
-        
-        const payload = ticket.getPayload();
-        const { email, name, sub } = payload;
-        
-        let user = await User.findOne({ where: { email } });
-        
-        if (!user) {
-            user = await User.create({
-                email,
-                name,
-                googleId: sub
-            });
-        } else if (!user.googleId) {
-            user.googleId = sub;
-            await user.save();
-        }
-        
-        req.logIn(user, (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ 
-                success: true, 
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    isAdmin: user.isAdmin,
-                    theme: user.theme,
-                    language: user.language
-                }
-            });
-        });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.post('/auth/facebook', async (req, res) => {
-    const { accessToken, userID } = req.body;
-    
-    try {
-        const response = await fetch(`https://graph.facebook.com/v12.0/${userID}?fields=id,name,email&access_token=${accessToken}`);
-        const data = await response.json();
-        
-        let user = await User.findOne({ where: { email: data.email } });
-        
-        if (!user) {
-            user = await User.create({
-                email: data.email,
-                name: data.name,
-                facebookId: data.id
-            });
-        } else if (!user.facebookId) {
-            user.facebookId = data.id;
-            await user.save();
-        }
-        
-        req.logIn(user, (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ 
-                success: true, 
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name,
-                    isAdmin: user.isAdmin,
-                    theme: user.theme,
-                    language: user.language
+                    createdAt: user.createdAt,
+                    syncedToSalesforce: user.syncedToSalesforce
                 }
             });
         });
@@ -472,7 +377,8 @@ app.get('/api/user', (req, res) => {
             isAdmin: req.user.isAdmin,
             theme: req.user.theme,
             language: req.user.language,
-            createdAt: req.user.createdAt
+            createdAt: req.user.createdAt,
+            syncedToSalesforce: req.user.syncedToSalesforce
         });
     } else {
         res.status(401).json({ error: 'Not authenticated' });
@@ -542,11 +448,345 @@ app.post('/api/user/preferences', ensureAuth, async (req, res) => {
     }
 });
 
+// ==================== SALESFORCE INTEGRATION ====================
+async function getSalesforceToken() {
+    if (!process.env.SF_CLIENT_ID) {
+        throw new Error('Salesforce not configured');
+    }
+    
+    const authUrl = `${process.env.SF_LOGIN_URL || 'https://login.salesforce.com'}/services/oauth2/token`;
+    const data = querystring.stringify({
+        grant_type: 'password',
+        client_id: process.env.SF_CLIENT_ID,
+        client_secret: process.env.SF_CLIENT_SECRET,
+        username: process.env.SF_USERNAME,
+        password: `${process.env.SF_PASSWORD}${process.env.SF_SECURITY_TOKEN}`
+    });
+
+    const response = await axios.post(authUrl, data, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    
+    return response.data;
+}
+
+// In server.js, update the Salesforce sync route
+app.post('/api/user/sync-to-salesforce', ensureAuth, async (req, res) => {
+    const { company, phone, position, industry } = req.body;
+    
+    // Check if Salesforce is configured
+    if (!process.env.SF_CLIENT_ID || !process.env.SF_CLIENT_SECRET) {
+        return res.status(400).json({ 
+            error: 'Salesforce not configured',
+            demo: true
+        });
+    }
+    
+    try {
+        // Check if we have valid credentials
+        const tokenData = await getSalesforceToken().catch(err => {
+            console.error('Salesforce token error:', err.message);
+            return null;
+        });
+        
+        if (!tokenData) {
+            return res.status(400).json({ 
+                error: 'Salesforce authentication failed. Check your credentials.',
+                demo: true
+            });
+        }
+        
+        // Rest of the code...
+        const instanceUrl = tokenData.instance_url;
+        const accessToken = tokenData.access_token;
+        
+        // Create Account
+        const accountData = {
+            Name: company || `${req.user.name}'s Company`,
+            Industry: industry || 'Technology',
+            Phone: phone || req.user.email,
+            Type: 'Customer'
+        };
+        
+        const accountResponse = await axios.post(
+            `${instanceUrl}/services/data/v58.0/sobjects/Account`,
+            accountData,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        );
+        
+        const accountId = accountResponse.data.id;
+        
+        // Create Contact
+        const nameParts = req.user.name.split(' ');
+        const contactData = {
+            FirstName: nameParts[0],
+            LastName: nameParts.slice(1).join(' ') || 'User',
+            Email: req.user.email,
+            Phone: phone,
+            Title: position || 'User',
+            AccountId: accountId
+        };
+        
+        const contactResponse = await axios.post(
+            `${instanceUrl}/services/data/v58.0/sobjects/Contact`,
+            contactData,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        );
+        
+        await User.update(
+            { 
+                salesforceAccountId: accountId,
+                salesforceContactId: contactResponse.data.id,
+                syncedToSalesforce: true,
+                syncedAt: new Date()
+            },
+            { where: { id: req.user.id } }
+        );
+        
+        res.json({ 
+            success: true, 
+            accountId, 
+            contactId: contactResponse.data.id,
+            message: 'User synced to Salesforce successfully'
+        });
+        
+    } catch (err) {
+        console.error('Salesforce sync error:', err.response?.data || err.message);
+        
+        let errorMessage = 'Failed to sync to Salesforce. ';
+        if (err.response?.status === 400) {
+            errorMessage += 'Check your credentials in .env file.';
+        } else if (err.response?.status === 401) {
+            errorMessage += 'Authentication failed. Reset your security token.';
+        } else {
+            errorMessage += err.message;
+        }
+        
+        res.status(500).json({ error: errorMessage, demo: true });
+    }
+});
+
+// ==================== ODOO INTEGRATION ====================
+app.get('/api/inventories/:id/odoo-data', async (req, res) => {
+    const inventoryId = parseInt(req.params.id);
+    const apiToken = req.headers['x-api-token'];
+    
+    try {
+        const inventory = await Inventory.findByPk(inventoryId, {
+            include: [
+                { model: Field },
+                { model: Item },
+                { model: User, as: 'creator', attributes: ['name'] }
+            ]
+        });
+        
+        if (!inventory) {
+            return res.status(404).json({ error: 'Inventory not found' });
+        }
+        
+        // Validate API token
+        if (!inventory.apiToken || inventory.apiToken !== apiToken) {
+            return res.status(401).json({ error: 'Invalid API token' });
+        }
+        
+        // Calculate statistics
+        const fields = inventory.Fields;
+        const items = inventory.Items;
+        const statistics = {};
+        
+        // Numeric fields stats
+        const numericFields = fields.filter(f => f.type === 'number');
+        for (const field of numericFields) {
+            const values = items
+                .map(item => {
+                    const data = JSON.parse(item.data || '{}');
+                    return parseFloat(data[field.title]);
+                })
+                .filter(v => !isNaN(v));
+            
+            if (values.length > 0) {
+                statistics[field.title] = {
+                    type: 'numeric',
+                    min: Math.min(...values),
+                    max: Math.max(...values),
+                    avg: values.reduce((a, b) => a + b, 0) / values.length,
+                    count: values.length
+                };
+            }
+        }
+        
+        // Text fields stats - top 5 most frequent
+        const textFields = fields.filter(f => f.type === 'text' || f.type === 'textarea');
+        for (const field of textFields) {
+            const frequencies = {};
+            items.forEach(item => {
+                const data = JSON.parse(item.data || '{}');
+                const value = data[field.title];
+                if (value && typeof value === 'string' && value.trim()) {
+                    frequencies[value] = (frequencies[value] || 0) + 1;
+                }
+            });
+            
+            const topValues = Object.entries(frequencies)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([value, count]) => ({ value, count }));
+            
+            if (topValues.length > 0) {
+                statistics[field.title] = {
+                    type: 'text',
+                    topValues: topValues,
+                    totalValues: items.length
+                };
+            }
+        }
+        
+        const result = {
+            inventory: {
+                id: inventory.id,
+                title: inventory.title,
+                description: inventory.description,
+                category: inventory.category,
+                tags: JSON.parse(inventory.tags || '[]'),
+                creator: inventory.creator.name,
+                createdAt: inventory.createdAt,
+                totalItems: items.length,
+                imageUrl: inventory.imageUrl
+            },
+            fields: fields.map(f => ({
+                id: f.id,
+                title: f.title,
+                type: f.type,
+                description: f.description,
+                showInTable: f.showInTable,
+                order: f.order
+            })),
+            statistics: statistics,
+            exportDate: new Date().toISOString()
+        };
+        
+        res.json(result);
+        
+    } catch (err) {
+        console.error('Odoo API error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/inventories/:id/generate-token', ensureAuth, async (req, res) => {
+    const inventoryId = parseInt(req.params.id);
+    
+    try {
+        const inventory = await Inventory.findByPk(inventoryId);
+        
+        if (!inventory) {
+            return res.status(404).json({ error: 'Inventory not found' });
+        }
+        
+        if (inventory.creatorId !== req.user.id && !req.user.isAdmin) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        
+        // Generate random API token
+        const token = crypto.randomBytes(32).toString('hex');
+        
+        inventory.apiToken = token;
+        await inventory.save();
+        
+        res.json({ token });
+        
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==================== POWER AUTOMATE / DROPBOX INTEGRATION ====================
+// In server.js, update the support ticket route
+app.post('/api/support/ticket', ensureAuth, async (req, res) => {
+    const { summary, priority, inventoryId } = req.body;
+    
+    if (!summary) {
+        return res.status(400).json({ error: 'Summary is required' });
+    }
+    
+    try {
+        let inventory = null;
+        if (inventoryId) {
+            inventory = await Inventory.findByPk(inventoryId);
+        }
+        
+        const ticketData = {
+            ticketId: `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            reportedBy: {
+                id: req.user.id,
+                name: req.user.name,
+                email: req.user.email
+            },
+            inventory: inventory ? {
+                id: inventory.id,
+                title: inventory.title
+            } : null,
+            link: req.headers.referer || 'Unknown page',
+            priority: priority || 'Average',
+            summary: summary,
+            timestamp: new Date().toISOString(),
+            admins: await getAdminEmails()
+        };
+        
+        const fileName = `support-ticket-${ticketData.ticketId}.json`;
+        const jsonContent = JSON.stringify(ticketData, null, 2);
+        
+        // Ensure support-tickets directory exists
+        const ticketsDir = path.join(__dirname, 'support-tickets');
+        if (!fs.existsSync(ticketsDir)) {
+            fs.mkdirSync(ticketsDir, { recursive: true });
+        }
+        
+        // Save locally
+        fs.writeFileSync(path.join(ticketsDir, fileName), jsonContent);
+        
+        // Try Dropbox if configured
+        if (process.env.DROPBOX_ACCESS_TOKEN && process.env.DROPBOX_ACCESS_TOKEN !== '') {
+            try {
+                await axios.post(
+                    'https://content.dropboxapi.com/2/files/upload',
+                    jsonContent,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${process.env.DROPBOX_ACCESS_TOKEN}`,
+                            'Dropbox-API-Arg': JSON.stringify({
+                                path: `/support-tickets/${fileName}`,
+                                mode: 'add',
+                                autorename: true,
+                                mute: false
+                            }),
+                            'Content-Type': 'application/octet-stream'
+                        }
+                    }
+                );
+            } catch (dropboxErr) {
+                console.log('Dropbox upload failed, saved locally only');
+            }
+        }
+        
+        res.json({
+            success: true,
+            ticketId: ticketData.ticketId,
+            filePath: `support-tickets/${fileName}`,
+            message: 'Support ticket created successfully'
+        });
+        
+    } catch (err) {
+        console.error('Ticket creation error:', err);
+        res.status(500).json({ error: 'Failed to create support ticket: ' + err.message });
+    }
+});
+
 // ==================== ADMIN ROUTES ====================
 app.get('/api/admin/users', ensureAdmin, async (req, res) => {
     try {
         const users = await User.findAll({
-            attributes: ['id', 'email', 'name', 'isAdmin', 'isBlocked', 'createdAt']
+            attributes: ['id', 'email', 'name', 'isAdmin', 'isBlocked', 'createdAt', 'syncedToSalesforce']
         });
         res.json(users);
     } catch (err) {
@@ -789,17 +1029,20 @@ app.post('/api/inventories/:id/image', ensureAuth, upload.single('image'), async
             return res.status(403).json({ error: 'Forbidden' });
         }
         
-        if (!process.env.CLOUDINARY_CLOUD_NAME) {
-            return res.status(400).json({ error: 'Cloudinary not configured' });
+        // For demo, just store the image in temp folder and return a path
+        const imageUrl = `/uploads/${req.file.filename}`;
+        
+        // Move file to public/uploads
+        const uploadDir = path.join(__dirname, 'public', 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
         }
+        fs.renameSync(req.file.path, path.join(uploadDir, req.file.filename));
         
-        const result = await cloudinary.uploader.upload(req.file.path);
-        fs.unlinkSync(req.file.path);
-        
-        inventory.imageUrl = result.secure_url;
+        inventory.imageUrl = imageUrl;
         await inventory.save();
         
-        res.json({ imageUrl: result.secure_url });
+        res.json({ imageUrl });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1268,7 +1511,7 @@ app.get('/api/inventories/:id/stats', async (req, res) => {
             items.forEach(item => {
                 const data = JSON.parse(item.data || '{}');
                 const value = data[field.title];
-                if (value) {
+                if (value && typeof value === 'string' && value.trim()) {
                     frequencies[value] = (frequencies[value] || 0) + 1;
                 }
             });
@@ -1334,11 +1577,9 @@ io.on('connection', (socket) => {
 // ==================== INITIALIZE DATABASE ====================
 async function initializeDatabase() {
     try {
-        // Sync all models
         await sequelize.sync({ force: true });
         console.log('✅ Database synced');
 
-        // Create categories
         await Category.bulkCreate([
             { name: 'Equipment' },
             { name: 'Furniture' },
@@ -1347,7 +1588,6 @@ async function initializeDatabase() {
         ]);
         console.log('✅ Categories created');
 
-        // Create admin user
         const hashedPassword = await bcrypt.hash('admin123', 10);
         await User.create({
             email: 'admin@example.com',
@@ -1357,7 +1597,6 @@ async function initializeDatabase() {
         });
         console.log('✅ Admin user created: admin@example.com / admin123');
 
-        // Create test user
         const testPassword = await bcrypt.hash('test123', 10);
         await User.create({
             email: 'test@example.com',
@@ -1366,7 +1605,6 @@ async function initializeDatabase() {
         });
         console.log('✅ Test user created: test@example.com / test123');
 
-        // Create sample tags
         await Tag.bulkCreate([
             { name: 'electronics', count: 0 },
             { name: 'office', count: 0 },
@@ -1379,6 +1617,36 @@ async function initializeDatabase() {
         console.error('Database initialization error:', err);
     }
 }
+
+// Add this route for OAuth2 flow
+app.get('/auth/salesforce', (req, res) => {
+    const authUrl = `https://login.salesforce.com/services/oauth2/authorize?` +
+        `response_type=code&client_id=${process.env.SF_CLIENT_ID}&` +
+        `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/salesforce/callback')}`;
+    res.redirect(authUrl);
+});
+
+app.get('/auth/salesforce/callback', async (req, res) => {
+    const { code } = req.query;
+    
+    try {
+        const response = await axios.post('https://login.salesforce.com/services/oauth2/token', 
+            querystring.stringify({
+                grant_type: 'authorization_code',
+                code: code,
+                client_id: process.env.SF_CLIENT_ID,
+                client_secret: process.env.SF_CLIENT_SECRET,
+                redirect_uri: 'http://localhost:3000/auth/salesforce/callback'
+            })
+        );
+        
+        // Store token in session
+        req.session.salesforceToken = response.data;
+        res.send('✅ Salesforce authenticated! You can close this window and go back to the app.');
+    } catch (err) {
+        res.send('❌ Authentication failed: ' + err.message);
+    }
+});
 
 // ==================== SERVE HTML ====================
 app.get('*', (req, res) => {
@@ -1397,20 +1665,10 @@ initializeDatabase().then(() => {
         console.log(`👤 Admin: admin@example.com / admin123`);
         console.log(`👤 Test: test@example.com / test123`);
         console.log('='.repeat(60));
-        console.log('✅ Features implemented:');
-        console.log('   • User authentication & admin panel');
-        console.log('   • Custom ID builder with drag & drop');
-        console.log('   • Custom fields (text, textarea, number, checkbox, document)');
-        console.log('   • Items with like/comment functionality');
-        console.log('   • Real-time comments with Socket.io');
-        console.log('   • Access control (public/private/writers)');
-        console.log('   • Tags with autocomplete');
-        console.log('   • Statistics dashboard');
-        console.log('   • Multi-language (EN/ES)');
-        console.log('   • Light/dark theme');
-        console.log('   • Auto-save every 7 seconds');
-        console.log('   • Optimistic locking');
-        console.log('   • Cloudinary image upload');
+        console.log('✅ Integrations added:');
+        console.log('   • Salesforce CRM Integration');
+        console.log('   • Odoo API Integration');
+        console.log('   • Power Automate / Dropbox Support Tickets');
         console.log('='.repeat(60));
     });
 });
