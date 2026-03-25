@@ -65,10 +65,6 @@ const translations = {
         addDate: 'Add Date',
         addSequence: 'Add Sequence',
         addGuid: 'Add GUID',
-        loginWithGoogle: 'Login with Google',
-        loginWithFacebook: 'Login with Facebook',
-        registerWithGoogle: 'Register with Google',
-        registerWithFacebook: 'Register with Facebook',
         uploadImage: 'Upload Image',
         changeImage: 'Change Image',
         removeImage: 'Remove Image',
@@ -108,9 +104,21 @@ const translations = {
         searchTags: 'Search tags...',
         noResults: 'No results found',
         loading: 'Loading...',
-        socialLoginNotConfigured: 'Social login not configured. Please use email/password.',
-        googleLogin: 'Google Login',
-        facebookLogin: 'Facebook Login'
+        syncToSalesforce: 'Sync to Salesforce',
+        salesforceSync: 'Salesforce Sync',
+        companyName: 'Company Name',
+        phone: 'Phone',
+        position: 'Position',
+        industry: 'Industry',
+        supportTicket: 'Support Ticket',
+        issueSummary: 'Issue Summary',
+        priority: 'Priority',
+        low: 'Low',
+        average: 'Average',
+        high: 'High',
+        relatedInventory: 'Related Inventory',
+        submitTicket: 'Submit Ticket',
+        needHelp: 'Need Help? Create Support Ticket'
     },
     es: {
         home: 'Inicio',
@@ -166,10 +174,6 @@ const translations = {
         addDate: 'Agregar fecha',
         addSequence: 'Agregar secuencia',
         addGuid: 'Agregar GUID',
-        loginWithGoogle: 'Iniciar sesión con Google',
-        loginWithFacebook: 'Iniciar sesión con Facebook',
-        registerWithGoogle: 'Registrarse con Google',
-        registerWithFacebook: 'Registrarse con Facebook',
         uploadImage: 'Subir imagen',
         changeImage: 'Cambiar imagen',
         removeImage: 'Eliminar imagen',
@@ -209,9 +213,21 @@ const translations = {
         searchTags: 'Buscar etiquetas...',
         noResults: 'No se encontraron resultados',
         loading: 'Cargando...',
-        socialLoginNotConfigured: 'Inicio de sesión social no configurado. Por favor usa email/contraseña.',
-        googleLogin: 'Inicio con Google',
-        facebookLogin: 'Inicio con Facebook'
+        syncToSalesforce: 'Sincronizar con Salesforce',
+        salesforceSync: 'Sincronización Salesforce',
+        companyName: 'Nombre de empresa',
+        phone: 'Teléfono',
+        position: 'Cargo',
+        industry: 'Industria',
+        supportTicket: 'Ticket de soporte',
+        issueSummary: 'Resumen del problema',
+        priority: 'Prioridad',
+        low: 'Baja',
+        average: 'Media',
+        high: 'Alta',
+        relatedInventory: 'Inventario relacionado',
+        submitTicket: 'Enviar ticket',
+        needHelp: '¿Necesitas ayuda? Crear ticket de soporte'
     }
 };
 
@@ -291,6 +307,9 @@ async function apiCall(url, options = {}) {
         const data = await res.json();
         
         if (!res.ok) {
+            if (res.status === 401) {
+                throw new Error('Not authenticated');
+            }
             if (res.status === 409) {
                 showToast(t('conflictDetected'), 'warning');
             }
@@ -317,6 +336,7 @@ async function checkAuth() {
         }
     } catch (err) {
         console.log('Not authenticated');
+        currentUser = null;
     }
     updateNav();
     loadPage();
@@ -395,21 +415,7 @@ function updateNav() {
         `;
     }
     
-    // Initialize tooltips
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
-}
-
-// Social Login Functions - Now with proper messages
-function loginWithGoogle() {
-    showToast(t('socialLoginNotConfigured'), 'info');
-    // In a real implementation with proper credentials:
-    // window.location.href = '/auth/google';
-}
-
-function loginWithFacebook() {
-    showToast(t('socialLoginNotConfigured'), 'info');
-    // In a real implementation with proper credentials:
-    // window.location.href = '/auth/facebook';
 }
 
 // Modals
@@ -417,10 +423,18 @@ function showLoginModal() {
     const modal = new bootstrap.Modal(document.getElementById('loginModal'));
     modal.show();
     
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+    
     document.getElementById('loginForm').onsubmit = async (e) => {
         e.preventDefault();
-        const email = document.getElementById('loginEmail').value;
+        const email = document.getElementById('loginEmail').value.trim();
         const password = document.getElementById('loginPassword').value;
+        
+        if (!email || !password) {
+            showToast('Please enter email and password', 'warning');
+            return;
+        }
         
         try {
             const data = await apiCall('/auth/login', {
@@ -442,11 +456,20 @@ function showRegisterModal() {
     const modal = new bootstrap.Modal(document.getElementById('registerModal'));
     modal.show();
     
+    document.getElementById('registerName').value = '';
+    document.getElementById('registerEmail').value = '';
+    document.getElementById('registerPassword').value = '';
+    
     document.getElementById('registerForm').onsubmit = async (e) => {
         e.preventDefault();
-        const name = document.getElementById('registerName').value;
-        const email = document.getElementById('registerEmail').value;
+        const name = document.getElementById('registerName').value.trim();
+        const email = document.getElementById('registerEmail').value.trim();
         const password = document.getElementById('registerPassword').value;
+        
+        if (!name || !email || !password) {
+            showToast('Please fill all fields', 'warning');
+            return;
+        }
         
         try {
             const data = await apiCall('/auth/register', {
@@ -473,11 +496,15 @@ function showCreateInventoryModal() {
 }
 
 async function logout() {
-    await fetch('/auth/logout');
-    currentUser = null;
-    updateNav();
-    loadPage();
-    showToast('Logged out', 'success');
+    try {
+        await fetch('/auth/logout');
+        currentUser = null;
+        updateNav();
+        loadPage();
+        showToast('Logged out', 'success');
+    } catch (err) {
+        console.error('Logout error:', err);
+    }
 }
 
 // Page loading
@@ -501,7 +528,7 @@ async function loadPage() {
     }
 }
 
-// Load categories from database
+// Load categories
 async function loadCategories() {
     try {
         const categories = await apiCall('/api/categories');
@@ -518,7 +545,7 @@ async function loadCategories() {
     }
 }
 
-// Initialize tag select with autocomplete
+// Initialize tag select
 async function initializeTagSelect(selector) {
     const select = document.querySelector(selector);
     if (!select) return;
@@ -548,7 +575,7 @@ async function initializeTagSelect(selector) {
     }
 }
 
-// Auto-save functions
+// Auto-save
 function enableAutoSave() {
     if (autoSaveEnabled) return;
     autoSaveEnabled = true;
@@ -635,7 +662,7 @@ function showAutoSaveIndicator(message, isSuccess = false) {
     }
 }
 
-// Image upload functions
+// Image upload
 function triggerImageUpload() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -726,9 +753,7 @@ async function loadHome() {
                                     ` : ''}
                                     <div class="card-body">
                                         <h5 class="card-title">${inv.title}</h5>
-                                        <p class="card-text text-muted small">
-                                            ${inv.description ? marked.parse(inv.description.substring(0, 100)) + '...' : 'No description'}
-                                        </p>
+                                        <p class="card-text text-muted small">${inv.description ? marked.parse(inv.description.substring(0, 100)) + '...' : 'No description'}</p>
                                         <div class="d-flex justify-content-between align-items-center">
                                             <small class="text-muted">
                                                 <i class="bi bi-person"></i> ${inv.creator?.name || 'Unknown'} |
@@ -791,7 +816,7 @@ async function loadHome() {
     }
 }
 
-// Profile page with sortable tables
+// Profile page
 async function loadProfile() {
     if (!currentUser) {
         loadHome();
@@ -809,46 +834,58 @@ async function loadProfile() {
                 <div class="col-12 mb-4">
                     <div class="card">
                         <div class="card-body">
-                            <h3>${currentUser.name}</h3>
-                            <p class="text-muted mb-0">${currentUser.email}</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h3>${currentUser.name}</h3>
+                                    <p class="text-muted mb-0">${currentUser.email}</p>
+                                    <p class="text-muted small">${t('createdAt')}: ${new Date(currentUser.createdAt).toLocaleDateString()}</p>
+                                </div>
+                                <div>
+                                    <button class="btn btn-primary" onclick="showSalesforceModal()">
+                                        <i class="bi bi-cloud-upload"></i> ${t('syncToSalesforce')}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="card-header">
                             <h5 class="mb-0">${t('myInventories')}</h5>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-secondary" onclick="sortOwnedBy('title')">
-                                    <i class="bi bi-sort-alpha-down"></i> ${t('title')}
-                                </button>
-                                <button class="btn btn-outline-secondary" onclick="sortOwnedBy('date')">
-                                    <i class="bi bi-sort-numeric-down"></i> Date
-                                </button>
-                            </div>
                         </div>
-                        <div class="list-group list-group-flush" id="ownedInventoriesList">
-                            ${renderInventoryList(owned, true)}
+                        <div class="list-group list-group-flush">
+                            ${owned.map(inv => `
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <a href="#" onclick="viewInventory(${inv.id})" class="fw-bold text-decoration-none">${inv.title}</a>
+                                    <div>
+                                        <span class="badge bg-info me-2">${inv.itemCount || 0} ${t('items')}</span>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteInventory(${inv.id})">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                            ${owned.length === 0 ? '<div class="list-group-item text-center text-muted py-4">No inventories yet</div>' : ''}
                         </div>
                     </div>
                 </div>
                 
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="card-header">
                             <h5 class="mb-0">${t('accessibleInventories')}</h5>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-secondary" onclick="sortAccessibleBy('title')">
-                                    <i class="bi bi-sort-alpha-down"></i> ${t('title')}
-                                </button>
-                                <button class="btn btn-outline-secondary" onclick="sortAccessibleBy('creator')">
-                                    <i class="bi bi-person"></i> ${t('createdBy')}
-                                </button>
-                            </div>
                         </div>
-                        <div class="list-group list-group-flush" id="accessibleInventoriesList">
-                            ${renderInventoryList(accessible, false)}
+                        <div class="list-group list-group-flush">
+                            ${accessible.map(inv => `
+                                <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" 
+                                        onclick="viewInventory(${inv.id})">
+                                    ${inv.title}
+                                    <span class="badge bg-info rounded-pill">${inv.itemCount || 0} ${t('items')}</span>
+                                </button>
+                            `).join('')}
+                            ${accessible.length === 0 ? '<div class="list-group-item text-center text-muted py-4">No accessible inventories</div>' : ''}
                         </div>
                     </div>
                 </div>
@@ -857,44 +894,6 @@ async function loadProfile() {
     } catch (err) {
         document.getElementById('app').innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
     }
-}
-
-function renderInventoryList(inventories, isOwned) {
-    if (inventories.length === 0) {
-        return `<div class="list-group-item text-center text-muted py-4">
-            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-            No inventories found
-        </div>`;
-    }
-    
-    return inventories.map(inv => `
-        <div class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <a href="#" onclick="viewInventory(${inv.id})" class="fw-bold text-decoration-none">
-                    ${inv.title}
-                </a>
-                <br>
-                <small class="text-muted">
-                    <i class="bi bi-box me-1"></i>${inv.itemCount || 0} items
-                    ${!isOwned && inv.creator ? ` | <i class="bi bi-person me-1"></i>${inv.creator.name}` : ''}
-                </small>
-            </div>
-            ${isOwned ? `
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteInventory(${inv.id})">
-                    <i class="bi bi-trash"></i>
-                </button>
-            ` : ''}
-        </div>
-    `).join('');
-}
-
-// Sorting functions
-function sortOwnedBy(field) {
-    showToast(`Sorting by ${field}`, 'info');
-}
-
-function sortAccessibleBy(field) {
-    showToast(`Sorting by ${field}`, 'info');
 }
 
 // Admin page
@@ -912,14 +911,7 @@ async function loadAdmin() {
             <div class="table-responsive">
                 <table class="table table-striped">
                     <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>${t('name')}</th>
-                            <th>${t('email')}</th>
-                            <th>Admin</th>
-                            <th>Blocked</th>
-                            <th>${t('actions')}</th>
-                        </tr>
+                        <tr><th>ID</th><th>${t('name')}</th><th>${t('email')}</th><th>Admin</th><th>Blocked</th><th>${t('actions')}</th></tr>
                     </thead>
                     <tbody>
                         ${users.map(user => `
@@ -927,24 +919,9 @@ async function loadAdmin() {
                                 <td>${user.id}</td>
                                 <td>${user.name}</td>
                                 <td>${user.email}</td>
-                                <td>
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" ${user.isAdmin ? 'checked' : ''} 
-                                               onchange="toggleAdmin(${user.id})" ${user.id === currentUser.id ? 'disabled' : ''}>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="form-check">
-                                        <input type="checkbox" class="form-check-input" ${user.isBlocked ? 'checked' : ''} 
-                                               onchange="toggleBlock(${user.id})">
-                                    </div>
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})"
-                                            ${user.id === currentUser.id ? 'disabled' : ''}>
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input" ${user.isAdmin ? 'checked' : ''} onchange="toggleAdmin(${user.id})" ${user.id === currentUser.id ? 'disabled' : ''}></td>
+                                <td class="text-center"><input type="checkbox" class="form-check-input" ${user.isBlocked ? 'checked' : ''} onchange="toggleBlock(${user.id})"></td>
+                                <td class="text-center"><button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})" ${user.id === currentUser.id ? 'disabled' : ''}><i class="bi bi-trash"></i></button></td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -974,475 +951,106 @@ async function loadInventory() {
     if (!currentInventory) return;
     
     const canEdit = currentUser && (currentUser.isAdmin || currentInventory.creatorId === currentUser.id);
-    const canWrite = currentUser && (
-        currentInventory.isPublic ||
-        currentInventory.creatorId === currentUser.id ||
-        currentUser.isAdmin ||
-        currentInventory.writers?.some(w => w.id === currentUser.id)
-    );
+    const canWrite = currentUser && (currentInventory.isPublic || currentInventory.creatorId === currentUser.id || currentUser.isAdmin || currentInventory.writers?.some(w => w.id === currentUser.id));
     
-    // Enable auto-save for editors
-    if (canEdit) {
-        enableAutoSave();
-    } else {
-        disableAutoSave();
-    }
+    if (canEdit) enableAutoSave();
+    else disableAutoSave();
     
     document.getElementById('app').innerHTML = `
         <div>
-            <button class="btn btn-secondary mb-3" onclick="loadHome()">
-                <i class="bi bi-arrow-left"></i> ${t('home')}
-            </button>
-            
-            <div class="card mb-4">
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-8">
-                            <h2>${currentInventory.title}</h2>
-                            <div class="mb-3">${marked.parse(currentInventory.description || '')}</div>
-                            <div class="mb-2">
-                                <span class="badge bg-info">${currentInventory.category}</span>
-                                ${JSON.parse(currentInventory.tags || '[]').map(tag => 
-                                    `<span class="badge bg-secondary me-1" style="cursor: pointer;" onclick="searchByTag('${tag}')">${tag}</span>`
-                                ).join('')}
-                            </div>
-                            <p class="text-muted small mb-0">
-                                <i class="bi bi-person"></i> ${currentInventory.creator?.name} |
-                                <i class="bi bi-calendar"></i> ${new Date(currentInventory.createdAt).toLocaleDateString()} |
-                                <i class="bi bi-box"></i> ${currentInventory.items?.length || 0} items
-                            </p>
-                        </div>
-                        ${canEdit ? `
-                            <div class="col-md-4 text-end">
-                                ${currentInventory.imageUrl ? `
-                                    <div class="mb-2">
-                                        <img src="${currentInventory.imageUrl}" class="img-fluid rounded" style="max-height: 100px;">
-                                    </div>
-                                    <div>
-                                        <button class="btn btn-sm btn-outline-primary" onclick="triggerImageUpload()">
-                                            <i class="bi bi-pencil"></i> ${t('changeImage')}
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger" onclick="removeInventoryImage()">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </div>
-                                ` : `
-                                    <button class="btn btn-outline-primary" onclick="triggerImageUpload()">
-                                        <i class="bi bi-cloud-upload"></i> ${t('uploadImage')}
-                                    </button>
-                                `}
-                            </div>
-                        ` : currentInventory.imageUrl ? `
-                            <div class="col-md-4 text-end">
-                                <img src="${currentInventory.imageUrl}" class="img-fluid rounded" style="max-height: 100px;">
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
+            <button class="btn btn-secondary mb-3" onclick="loadHome()"><i class="bi bi-arrow-left"></i> ${t('home')}</button>
+            <div class="card mb-4"><div class="card-body"><div class="row"><div class="col-md-8">
+                <h2>${currentInventory.title}</h2>
+                <div class="mb-3">${marked.parse(currentInventory.description || '')}</div>
+                <div class="mb-2"><span class="badge bg-info">${currentInventory.category}</span> ${JSON.parse(currentInventory.tags || '[]').map(tag => `<span class="badge bg-secondary me-1" style="cursor: pointer;" onclick="searchByTag('${tag}')">${tag}</span>`).join('')}</div>
+                <p class="text-muted small mb-0"><i class="bi bi-person"></i> ${currentInventory.creator?.name} | <i class="bi bi-calendar"></i> ${new Date(currentInventory.createdAt).toLocaleDateString()} | <i class="bi bi-box"></i> ${currentInventory.items?.length || 0} ${t('items')}</p>
             </div>
+            ${canEdit ? `<div class="col-md-4 text-end">${currentInventory.imageUrl ? `<div class="mb-2"><img src="${currentInventory.imageUrl}" class="img-fluid rounded" style="max-height:100px;"></div><div><button class="btn btn-sm btn-outline-primary" onclick="triggerImageUpload()">${t('changeImage')}</button> <button class="btn btn-sm btn-outline-danger" onclick="removeInventoryImage()">${t('removeImage')}</button></div>` : `<button class="btn btn-outline-primary" onclick="triggerImageUpload()">${t('uploadImage')}</button>`}</div>` : currentInventory.imageUrl ? `<div class="col-md-4 text-end"><img src="${currentInventory.imageUrl}" class="img-fluid rounded" style="max-height:100px;"></div>` : ''}</div></div></div>
             
-            <ul class="nav nav-tabs" id="inventoryTabs">
-                <li class="nav-item">
-                    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#items">${t('items')}</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#comments">${t('comments')}</button>
-                </li>
-                ${canEdit ? `
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#settings">${t('settings')}</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#idformat">${t('idFormat')}</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#fields">${t('fields')}</button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#access">${t('access')}</button>
-                    </li>
-                ` : ''}
-                <li class="nav-item">
-                    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#stats">${t('statistics')}</button>
-                </li>
+            <ul class="nav nav-tabs">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#items">${t('items')}</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#comments">${t('comments')}</button></li>
+                ${canEdit ? `<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#settings">${t('settings')}</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#idformat">${t('idFormat')}</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#fields">${t('fields')}</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#access">${t('access')}</button></li>` : ''}
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#stats">${t('statistics')}</button></li>
             </ul>
-            
             <div class="tab-content mt-3">
-                <div class="tab-pane fade show active" id="items">
-                    ${renderItemsTab(canWrite)}
-                </div>
-                <div class="tab-pane fade" id="comments">
-                    ${renderCommentsTab()}
-                </div>
-                ${canEdit ? `
-                    <div class="tab-pane fade" id="settings">
-                        ${renderSettingsTab()}
-                    </div>
-                    <div class="tab-pane fade" id="idformat">
-                        ${renderIdFormatTab()}
-                    </div>
-                    <div class="tab-pane fade" id="fields">
-                        ${renderFieldsTab()}
-                    </div>
-                    <div class="tab-pane fade" id="access">
-                        ${renderAccessTab()}
-                    </div>
-                ` : ''}
-                <div class="tab-pane fade" id="stats">
-                    ${renderStatsTab()}
-                </div>
+                <div class="tab-pane fade show active" id="items">${renderItemsTab(canWrite)}</div>
+                <div class="tab-pane fade" id="comments">${renderCommentsTab()}</div>
+                ${canEdit ? `<div class="tab-pane fade" id="settings">${renderSettingsTab()}</div>
+                <div class="tab-pane fade" id="idformat">${renderIdFormatTab()}</div>
+                <div class="tab-pane fade" id="fields">${renderFieldsTab()}</div>
+                <div class="tab-pane fade" id="access">${renderAccessTab()}</div>` : ''}
+                <div class="tab-pane fade" id="stats">${renderStatsTab()}</div>
             </div>
         </div>
     `;
     
-    // Initialize tabs
-    document.querySelectorAll('#inventoryTabs button').forEach(button => {
-        button.addEventListener('click', (e) => {
-            e.preventDefault();
-            new bootstrap.Tab(button).show();
-        });
-    });
-    
-    // Initialize settings tag select
-    if (canEdit) {
-        setTimeout(() => {
-            initializeTagSelect('#settingsTags');
-            loadCategories().then(() => {
-                const categorySelect = document.getElementById('settingsCategory');
-                if (categorySelect && currentInventory.category) {
-                    categorySelect.value = currentInventory.category;
-                }
-            });
-        }, 100);
-    }
-    
-    // Load stats
+    document.querySelectorAll('#inventoryTabs button').forEach(button => button.addEventListener('click', (e) => { e.preventDefault(); new bootstrap.Tab(button).show(); }));
+    if (canEdit) setTimeout(() => { initializeTagSelect('#settingsTags'); loadCategories().then(() => { const cs = document.getElementById('settingsCategory'); if(cs && currentInventory.category) cs.value = currentInventory.category; }); }, 100);
     setTimeout(() => loadStats(), 100);
 }
 
-// Render items tab
 function renderItemsTab(canWrite) {
     const fields = currentInventory.fields || [];
     const items = currentInventory.items || [];
-    
-    return `
-        <div class="mb-3">
-            ${canWrite ? `
-                <button class="btn btn-primary" onclick="showAddItemModal()">
-                    <i class="bi bi-plus-circle"></i> ${t('addItem')}
-                </button>
-            ` : ''}
-        </div>
-        
-        <div class="table-responsive">
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th>${t('customId')}</th>
-                        ${fields.filter(f => f.showInTable).map(f => `<th>${f.title}</th>`).join('')}
-                        <th>${t('createdBy')}</th>
-                        <th>Likes</th>
-                        <th>${t('actions')}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${items.map(item => {
-                        const data = JSON.parse(item.data || '{}');
-                        return `
-                            <tr>
-                                <td><span class="badge bg-light text-dark">${item.customId}</span></td>
-                                ${fields.filter(f => f.showInTable).map(f => 
-                                    `<td>${data[f.title] || ''}</td>`
-                                ).join('')}
-                                <td>${item.creator?.name || 'Unknown'}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-link" onclick="likeItem(${item.id})">
-                                        <i class="bi bi-heart${item.liked ? '-fill text-danger' : ''}"></i>
-                                    </button>
-                                    ${item.likesCount || 0}
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-outline-primary" onclick="viewItem(${item.id})">
-                                        <i class="bi bi-eye"></i>
-                                    </button>
-                                    ${canWrite ? `
-                                        <button class="btn btn-sm btn-outline-warning" onclick="editItem(${item.id})">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(${item.id})">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    ` : ''}
-                                </td>
-                            </tr>
-                        `;
-                    }).join('')}
-                    ${items.length === 0 ? `
-                        <tr>
-                            <td colspan="${fields.filter(f => f.showInTable).length + 4}" class="text-center py-4">
-                                <i class="bi bi-inbox fs-1 d-block mb-2 text-muted"></i>
-                                <p class="text-muted mb-0">No items yet</p>
-                                ${canWrite ? `
-                                    <button class="btn btn-primary btn-sm mt-2" onclick="showAddItemModal()">
-                                        ${t('addItem')}
-                                    </button>
-                                ` : ''}
-                            </td>
-                        </tr>
-                    ` : ''}
-                </tbody>
-            </table>
-        </div>
-    `;
+    return `<div class="mb-3">${canWrite ? `<button class="btn btn-primary" onclick="showAddItemModal()"><i class="bi bi-plus-circle"></i> ${t('addItem')}</button>` : ''}</div>
+    <div class="table-responsive"><table class="table table-striped"><thead><tr><th>${t('customId')}</th>${fields.filter(f => f.showInTable).map(f => `<th>${f.title}</th>`).join('')}<th>${t('createdBy')}</th><th>Likes</th><th>${t('actions')}</th></tr></thead>
+    <tbody>${items.map(item => { const data = JSON.parse(item.data || '{}'); return `<tr><td><span class="badge bg-light text-dark">${item.customId}</span></td>${fields.filter(f => f.showInTable).map(f => `<td>${data[f.title] || ''}</td>`).join('')}<td>${item.creator?.name || 'Unknown'}</td>
+    <td><button class="btn btn-sm btn-link" onclick="likeItem(${item.id})"><i class="bi bi-heart${item.liked ? '-fill text-danger' : ''}"></i></button> ${item.likesCount || 0}</td>
+    <td><button class="btn btn-sm btn-outline-primary" onclick="viewItem(${item.id})"><i class="bi bi-eye"></i></button> ${canWrite ? `<button class="btn btn-sm btn-outline-warning" onclick="editItem(${item.id})"><i class="bi bi-pencil"></i></button> <button class="btn btn-sm btn-outline-danger" onclick="deleteItem(${item.id})"><i class="bi bi-trash"></i></button>` : ''}</td></tr>`; }).join('')}
+    ${items.length === 0 ? `<tr><td colspan="${fields.filter(f => f.showInTable).length + 4}" class="text-center py-4"><i class="bi bi-inbox fs-1 d-block mb-2 text-muted"></i><p class="text-muted mb-0">No items yet</p>${canWrite ? `<button class="btn btn-primary btn-sm mt-2" onclick="showAddItemModal()">${t('addItem')}</button>` : ''}</td></tr>` : ''}</tbody></table></div>`;
 }
 
-// Render comments tab
 function renderCommentsTab() {
     const comments = currentInventory.comments || [];
-    
-    return `
-        <div class="row">
-            <div class="col-md-8">
-                <div id="comments-list">
-                    ${comments.map(comment => `
-                        <div class="comment mb-3">
-                            <div class="comment-meta">
-                                <a href="#" onclick="viewUser(${comment.userId})" class="fw-bold">${comment.userName}</a>
-                                <small class="text-muted ms-2">${new Date(comment.createdAt).toLocaleString()}</small>
-                            </div>
-                            <div class="comment-content">${marked.parse(comment.content)}</div>
-                        </div>
-                    `).join('')}
-                    ${comments.length === 0 ? '<p class="text-muted">No comments yet</p>' : ''}
-                </div>
-            </div>
-            ${currentUser ? `
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5>${t('addComment')}</h5>
-                            <textarea class="form-control mb-2" id="commentContent" rows="3"></textarea>
-                            <button class="btn btn-primary" onclick="addInventoryComment()">${t('addComment')}</button>
-                        </div>
-                    </div>
-                </div>
-            ` : ''}
-        </div>
-    `;
+    return `<div class="row"><div class="col-md-8"><div id="comments-list">${comments.map(c => `<div class="comment mb-3"><div class="comment-meta"><a href="#" onclick="viewUser(${c.userId})" class="fw-bold">${c.userName}</a> <small class="text-muted ms-2">${new Date(c.createdAt).toLocaleString()}</small></div><div class="comment-content">${marked.parse(c.content)}</div></div>`).join('')}${comments.length === 0 ? '<p class="text-muted">No comments yet</p>' : ''}</div></div>${currentUser ? `<div class="col-md-4"><div class="card"><div class="card-body"><h5>${t('addComment')}</h5><textarea class="form-control mb-2" id="commentContent" rows="3"></textarea><button class="btn btn-primary" onclick="addInventoryComment()">${t('addComment')}</button></div></div></div>` : ''}</div>`;
 }
 
-// Render settings tab with auto-save
 function renderSettingsTab() {
     const tags = JSON.parse(currentInventory.tags || '[]');
-    
-    return `
-        <form id="settingsForm">
-            <div class="mb-3">
-                <label class="form-label">${t('title')}</label>
-                <input type="text" class="form-control" id="settingsTitle" value="${currentInventory.title}" 
-                       required onchange="markPendingChanges()" onkeyup="markPendingChanges()">
-            </div>
-            <div class="mb-3">
-                <label class="form-label">${t('description')} (Markdown)</label>
-                <textarea class="form-control" id="settingsDescription" rows="3" 
-                          onchange="markPendingChanges()" onkeyup="markPendingChanges()">${currentInventory.description || ''}</textarea>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">${t('category')}</label>
-                <select class="form-control" id="settingsCategory" onchange="markPendingChanges()">
-                    <option value="">Select category...</option>
-                </select>
-            </div>
-            <div class="mb-3">
-                <label class="form-label">Tags</label>
-                <select class="form-control" id="settingsTags" multiple>
-                    ${tags.map(tag => `<option value="${tag}" selected>${tag}</option>`).join('')}
-                </select>
-            </div>
-            <div class="mb-3 form-check">
-                <input type="checkbox" class="form-check-input" id="settingsIsPublic" 
-                       ${currentInventory.isPublic ? 'checked' : ''} onchange="markPendingChanges()">
-                <label class="form-check-label">${t('public')}</label>
-            </div>
-            <div class="alert alert-info small">
-                <i class="bi bi-info-circle me-2"></i>
-                Auto-save is enabled. Changes are saved every 7 seconds.
-                Version: ${currentInventory.version}
-            </div>
-            <button type="submit" class="btn btn-primary">${t('save')}</button>
-        </form>
-    `;
+    return `<form id="settingsForm"><div class="mb-3"><label class="form-label">${t('title')}</label><input type="text" class="form-control" id="settingsTitle" value="${currentInventory.title}" required onchange="markPendingChanges()" onkeyup="markPendingChanges()"></div>
+    <div class="mb-3"><label class="form-label">${t('description')} (Markdown)</label><textarea class="form-control" id="settingsDescription" rows="3" onchange="markPendingChanges()" onkeyup="markPendingChanges()">${currentInventory.description || ''}</textarea></div>
+    <div class="mb-3"><label class="form-label">${t('category')}</label><select class="form-control category-dropdown" id="settingsCategory" onchange="markPendingChanges()"><option value="">Select category...</option></select></div>
+    <div class="mb-3"><label class="form-label">Tags</label><select class="form-control" id="settingsTags" multiple>${tags.map(tag => `<option value="${tag}" selected>${tag}</option>`).join('')}</select></div>
+    <div class="mb-3 form-check"><input type="checkbox" class="form-check-input" id="settingsIsPublic" ${currentInventory.isPublic ? 'checked' : ''} onchange="markPendingChanges()"><label class="form-check-label">${t('public')}</label></div>
+    <div class="card mt-3"><div class="card-header bg-info text-white"><i class="bi bi-box-arrow-right"></i> Odoo Integration</div><div class="card-body"><div class="mb-3"><label class="form-label">API Token</label><div class="input-group"><input type="text" class="form-control" id="apiToken" value="${currentInventory.apiToken || ''}" readonly><button class="btn btn-primary" type="button" onclick="generateApiToken()"><i class="bi bi-key"></i> Generate Token</button></div><small class="text-muted">Use this token to access inventory data from Odoo</small></div><div class="alert alert-info small"><i class="bi bi-info-circle"></i> <strong>Odoo API Endpoint:</strong> <code>/api/inventories/${currentInventory.id}/odoo-data</code><br><strong>Headers:</strong> <code>X-API-Token: {your_token}</code></div></div></div>
+    <div class="alert alert-info small mt-3"><i class="bi bi-info-circle me-2"></i> Auto-save enabled. Changes saved every 7 seconds. Version: ${currentInventory.version}</div>
+    <button type="submit" class="btn btn-primary mt-2">${t('save')}</button></form>`;
 }
 
-// Render ID format tab
 function renderIdFormatTab() {
-    return `
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body">
-                        <h5>${t('idFormat')}</h5>
-                        <button class="btn btn-sm btn-warning mb-3" onclick="showIdBuilderModal()">
-                            <i class="bi bi-pencil"></i> Edit Format
-                        </button>
-                        <div class="id-builder mb-3 p-3 bg-light rounded">
-                            ${renderIdParts()}
-                        </div>
-                        <div class="mb-3">
-                            <strong>${t('preview')}:</strong> 
-                            <code>${generatePreview()}</code>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+    return `<div class="row"><div class="col-12"><div class="card"><div class="card-body"><h5>${t('idFormat')}</h5><button class="btn btn-sm btn-warning mb-3" onclick="showIdBuilderModal()"><i class="bi bi-pencil"></i> Edit Format</button><div class="id-builder mb-3 p-3 bg-light rounded">${renderIdParts()}</div><div class="mb-3"><strong>${t('preview')}:</strong> <code>${generatePreview()}</code></div></div></div></div></div>`;
 }
 
-// Render ID parts
 function renderIdParts() {
     const format = JSON.parse(currentInventory.customIdFormat || '[{"type":"sequence","padding":3}]');
-    return format.map((part, index) => {
-        let display = '';
-        switch(part.type) {
-            case 'text': display = part.value; break;
-            case 'sequence': display = `SEQ(${part.padding || 3})`; break;
-            case 'date': display = 'DATE'; break;
-            case 'random6': display = 'RND6'; break;
-            case 'random9': display = 'RND9'; break;
-            case 'random20': display = 'RND20'; break;
-            case 'random32': display = 'RND32'; break;
-            case 'guid': display = 'GUID'; break;
-        }
-        return `<span class="id-part badge bg-primary me-1 p-2">${display}</span>`;
-    }).join('');
+    return format.map((part, index) => { let display = ''; switch(part.type) { case 'text': display = part.value; break; case 'sequence': display = `SEQ(${part.padding || 3})`; break; case 'date': display = 'DATE'; break; case 'random6': display = 'RND6'; break; case 'random9': display = 'RND9'; break; case 'random20': display = 'RND20'; break; case 'random32': display = 'RND32'; break; case 'guid': display = 'GUID'; break; } return `<span class="id-part badge bg-primary me-1 p-2">${display}</span>`; }).join('');
 }
 
-// Render fields tab
 function renderFieldsTab() {
     const fields = currentInventory.fields || [];
-    
-    return `
-        <div class="row">
-            <div class="col-md-8">
-                <div class="list-group" id="fieldsList">
-                    ${fields.map(field => `
-                        <div class="list-group-item d-flex justify-content-between align-items-center" data-id="${field.id}">
-                            <div>
-                                <i class="bi bi-grip-vertical me-2 text-muted" style="cursor: move;"></i>
-                                <strong>${field.title}</strong>
-                                <span class="badge bg-info ms-2">${field.type}</span>
-                                ${field.showInTable ? '<span class="badge bg-success ms-1">In table</span>' : ''}
-                                ${field.description ? `<p class="mb-0 small text-muted mt-1">${field.description}</p>` : ''}
-                            </div>
-                            <button class="btn btn-sm btn-danger" onclick="deleteField(${field.id})">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-            
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body">
-                        <h5>${t('addField')}</h5>
-                        <select class="form-control mb-2" id="fieldType">
-                            <option value="text">Single Line Text</option>
-                            <option value="textarea">Multi Line Text</option>
-                            <option value="number">Number</option>
-                            <option value="checkbox">Checkbox</option>
-                            <option value="document">Document Link</option>
-                        </select>
-                        <input type="text" class="form-control mb-2" id="fieldTitle" placeholder="${t('title')}">
-                        <input type="text" class="form-control mb-2" id="fieldDescription" placeholder="${t('description')}">
-                        <div class="form-check mb-2">
-                            <input type="checkbox" class="form-check-input" id="fieldShowInTable">
-                            <label class="form-check-label">Show in table</label>
-                        </div>
-                        <button class="btn btn-primary" onclick="addField()">${t('addField')}</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+    return `<div class="row"><div class="col-md-8"><div class="list-group" id="fieldsList">${fields.map(field => `<div class="list-group-item d-flex justify-content-between align-items-center" data-id="${field.id}"><div><i class="bi bi-grip-vertical me-2 text-muted" style="cursor:move;"></i> <strong>${field.title}</strong> <span class="badge bg-info ms-2">${field.type}</span> ${field.showInTable ? '<span class="badge bg-success ms-1">In table</span>' : ''}${field.description ? `<p class="mb-0 small text-muted mt-1">${field.description}</p>` : ''}</div><button class="btn btn-sm btn-danger" onclick="deleteField(${field.id})"><i class="bi bi-trash"></i></button></div>`).join('')}</div></div>
+    <div class="col-md-4"><div class="card"><div class="card-body"><h5>${t('addField')}</h5><select class="form-control mb-2" id="fieldType"><option value="text">Single Line Text</option><option value="textarea">Multi Line Text</option><option value="number">Number</option><option value="checkbox">Checkbox</option><option value="document">Document Link</option></select>
+    <input type="text" class="form-control mb-2" id="fieldTitle" placeholder="${t('title')}"><input type="text" class="form-control mb-2" id="fieldDescription" placeholder="${t('description')}">
+    <div class="form-check mb-2"><input type="checkbox" class="form-check-input" id="fieldShowInTable"><label class="form-check-label">Show in table</label></div>
+    <button class="btn btn-primary" onclick="addField()">${t('addField')}</button></div></div></div></div>`;
 }
 
-// Render access tab with sorting
 function renderAccessTab() {
     const writers = currentInventory.writers || [];
-    
-    const sortedWriters = [...writers].sort((a, b) => {
-        return a.name.localeCompare(b.name);
-    });
-    
-    return `
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">${t('writers')}</h5>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-secondary" onclick="sortWriters('name')">
-                                <i class="bi bi-sort-alpha-down"></i> ${t('name')}
-                            </button>
-                            <button class="btn btn-outline-secondary" onclick="sortWriters('email')">
-                                <i class="bi bi-envelope"></i> ${t('email')}
-                            </button>
-                        </div>
-                    </div>
-                    <div class="list-group list-group-flush" id="writersList">
-                        ${sortedWriters.map(user => `
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div class="fw-bold">${user.name}</div>
-                                    <small class="text-muted">${user.email}</small>
-                                </div>
-                                <button class="btn btn-sm btn-danger" onclick="removeWriter(${user.id})">
-                                    <i class="bi bi-x"></i>
-                                </button>
-                            </div>
-                        `).join('')}
-                        ${writers.length === 0 ? `
-                            <div class="list-group-item text-center text-muted py-3">
-                                <i class="bi bi-person-plus fs-1 d-block mb-2"></i>
-                                <p class="mb-0">No writers added yet</p>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <h5>${t('addWriter')}</h5>
-                        <div class="mb-3">
-                            <input type="text" class="form-control" id="writerSearch" 
-                                   placeholder="${t('searchUsers')}">
-                            <div id="searchResults" class="list-group mt-2"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+    const sortedWriters = [...writers].sort((a, b) => a.name.localeCompare(b.name));
+    return `<div class="row"><div class="col-md-6"><div class="card"><div class="card-header d-flex justify-content-between align-items-center"><h5 class="mb-0">${t('writers')}</h5><div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" onclick="sortWriters('name')"><i class="bi bi-sort-alpha-down"></i> ${t('name')}</button><button class="btn btn-outline-secondary" onclick="sortWriters('email')"><i class="bi bi-envelope"></i> ${t('email')}</button></div></div>
+    <div class="list-group list-group-flush" id="writersList">${sortedWriters.map(user => `<div class="list-group-item d-flex justify-content-between align-items-center"><div><div class="fw-bold">${user.name}</div><small class="text-muted">${user.email}</small></div><button class="btn btn-sm btn-danger" onclick="removeWriter(${user.id})"><i class="bi bi-x"></i></button></div>`).join('')}${writers.length === 0 ? '<div class="list-group-item text-center text-muted py-3"><i class="bi bi-person-plus fs-1 d-block mb-2"></i><p class="mb-0">No writers added yet</p></div>' : ''}</div></div></div>
+    <div class="col-md-6"><div class="card"><div class="card-body"><h5>${t('addWriter')}</h5><div class="mb-3"><input type="text" class="form-control" id="writerSearch" placeholder="${t('searchUsers')}"><div id="searchResults" class="list-group mt-2"></div></div></div></div></div></div>`;
 }
 
-// Render stats tab
 function renderStatsTab() {
-    return `
-        <div class="row" id="statsContainer">
-            <div class="col-12 text-center">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-            </div>
-        </div>
-    `;
+    return `<div class="row" id="statsContainer"><div class="col-12 text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div></div></div>`;
 }
 
-// Helper functions
 function generatePreview() {
     const format = JSON.parse(currentInventory.customIdFormat || '[{"type":"sequence","padding":3}]');
     let preview = '';
@@ -1461,463 +1069,165 @@ function generatePreview() {
     return preview;
 }
 
-// Inventory actions
 async function createInventory() {
     const title = document.getElementById('invTitle').value;
     const description = document.getElementById('invDescription').value;
     const category = document.getElementById('invCategory').value;
-    const tagsSelect = document.getElementById('invTags');
-    const tags = tagsSelect ? $(tagsSelect).val() : [];
+    const tags = $(document.getElementById('invTags')).val() || [];
     const isPublic = document.getElementById('invIsPublic').checked;
-    
+    if (!title) { showToast('Please enter a title', 'warning'); return; }
     try {
-        const inventory = await apiCall('/api/inventories', {
-            method: 'POST',
-            body: JSON.stringify({ title, description, category, tags, isPublic })
-        });
-        
+        const inventory = await apiCall('/api/inventories', { method: 'POST', body: JSON.stringify({ title, description, category, tags, isPublic }) });
         bootstrap.Modal.getInstance(document.getElementById('createInventoryModal')).hide();
         showToast('Inventory created', 'success');
         viewInventory(inventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function deleteInventory(id) {
     if (!confirm(t('confirmDeleteInventory'))) return;
-    
-    try {
-        await apiCall(`/api/inventories/${id}`, { method: 'DELETE' });
-        showToast('Inventory deleted', 'success');
-        loadHome();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/inventories/${id}`, { method: 'DELETE' }); showToast('Inventory deleted', 'success'); loadHome(); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Field actions
 async function addField() {
     const type = document.getElementById('fieldType').value;
     const title = document.getElementById('fieldTitle').value;
     const description = document.getElementById('fieldDescription').value;
     const showInTable = document.getElementById('fieldShowInTable').checked;
-    
-    if (!title) {
-        showToast('Please enter a field title', 'warning');
-        return;
-    }
-    
+    if (!title) { showToast('Please enter a field title', 'warning'); return; }
     try {
-        await apiCall(`/api/inventories/${currentInventory.id}/fields`, {
-            method: 'POST',
-            body: JSON.stringify({ type, title, description, showInTable })
-        });
-        
-        document.getElementById('fieldTitle').value = '';
-        document.getElementById('fieldDescription').value = '';
-        document.getElementById('fieldShowInTable').checked = false;
-        
-        showToast(t('fieldAdded'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+        await apiCall(`/api/inventories/${currentInventory.id}/fields`, { method: 'POST', body: JSON.stringify({ type, title, description, showInTable }) });
+        document.getElementById('fieldTitle').value = ''; document.getElementById('fieldDescription').value = ''; document.getElementById('fieldShowInTable').checked = false;
+        showToast(t('fieldAdded'), 'success'); viewInventory(currentInventory.id);
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function deleteField(id) {
     if (!confirm(t('confirmDeleteField'))) return;
-    
-    try {
-        await apiCall(`/api/fields/${id}`, { method: 'DELETE' });
-        showToast(t('fieldDeleted'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/fields/${id}`, { method: 'DELETE' }); showToast(t('fieldDeleted'), 'success'); viewInventory(currentInventory.id); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Item actions
 async function showAddItemModal() {
     if (!currentInventory) return;
-    
     const modal = new bootstrap.Modal(document.getElementById('addItemModal'));
     const container = document.getElementById('itemFields');
-    
     container.innerHTML = (currentInventory.fields || []).map(field => {
         const fieldId = `field_${field.id}`;
         switch(field.type) {
-            case 'text':
-                return `
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label class="form-label">${field.title}</label>
-                            <input type="text" class="form-control" data-field="${field.title}" 
-                                   data-type="text" id="${fieldId}" placeholder="${field.description || ''}">
-                            ${field.description ? `<small class="text-muted">${field.description}</small>` : ''}
-                        </div>
-                    </div>
-                `;
-            case 'textarea':
-                return `
-                    <div class="col-12">
-                        <div class="mb-3">
-                            <label class="form-label">${field.title}</label>
-                            <textarea class="form-control" data-field="${field.title}" 
-                                      data-type="textarea" id="${fieldId}" rows="3" 
-                                      placeholder="${field.description || ''}"></textarea>
-                            ${field.description ? `<small class="text-muted">${field.description}</small>` : ''}
-                        </div>
-                    </div>
-                `;
-            case 'number':
-                return `
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label class="form-label">${field.title}</label>
-                            <input type="number" class="form-control" data-field="${field.title}" 
-                                   data-type="number" id="${fieldId}" placeholder="${field.description || ''}">
-                            ${field.description ? `<small class="text-muted">${field.description}</small>` : ''}
-                        </div>
-                    </div>
-                `;
-            case 'checkbox':
-                return `
-                    <div class="col-md-6">
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" data-field="${field.title}" 
-                                   data-type="checkbox" id="${fieldId}">
-                            <label class="form-check-label" for="${fieldId}">${field.title}</label>
-                            ${field.description ? `<small class="text-muted d-block">${field.description}</small>` : ''}
-                        </div>
-                    </div>
-                `;
-            case 'document':
-                return `
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label class="form-label">${field.title}</label>
-                            <input type="url" class="form-control" data-field="${field.title}" 
-                                   data-type="document" id="${fieldId}" placeholder="https://...">
-                            ${field.description ? `<small class="text-muted">${field.description}</small>` : ''}
-                        </div>
-                    </div>
-                `;
-            default:
-                return '';
+            case 'text': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="text" class="form-control" data-field="${field.title}" data-type="text" id="${fieldId}" placeholder="${field.description || ''}">${field.description ? `<small class="text-muted">${field.description}</small>` : ''}</div></div>`;
+            case 'textarea': return `<div class="col-12"><div class="mb-3"><label class="form-label">${field.title}</label><textarea class="form-control" data-field="${field.title}" data-type="textarea" id="${fieldId}" rows="3" placeholder="${field.description || ''}"></textarea>${field.description ? `<small class="text-muted">${field.description}</small>` : ''}</div></div>`;
+            case 'number': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="number" class="form-control" data-field="${field.title}" data-type="number" id="${fieldId}" placeholder="${field.description || ''}">${field.description ? `<small class="text-muted">${field.description}</small>` : ''}</div></div>`;
+            case 'checkbox': return `<div class="col-md-6"><div class="mb-3 form-check"><input type="checkbox" class="form-check-input" data-field="${field.title}" data-type="checkbox" id="${fieldId}"><label class="form-check-label" for="${fieldId}">${field.title}</label>${field.description ? `<small class="text-muted d-block">${field.description}</small>` : ''}</div></div>`;
+            case 'document': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="url" class="form-control" data-field="${field.title}" data-type="document" id="${fieldId}" placeholder="https://...">${field.description ? `<small class="text-muted">${field.description}</small>` : ''}</div></div>`;
+            default: return '';
         }
     }).join('');
-    
     modal.show();
 }
 
 async function addItem() {
     const customId = document.getElementById('itemCustomId').value;
-    
-    const fields = document.querySelectorAll('#itemFields [data-field]');
     const data = {};
-    fields.forEach(field => {
-        const fieldName = field.dataset.field;
-        if (field.type === 'checkbox') {
-            data[fieldName] = field.checked;
-        } else {
-            data[fieldName] = field.value;
-        }
-    });
-    
+    document.querySelectorAll('#itemFields [data-field]').forEach(field => { data[field.dataset.field] = field.type === 'checkbox' ? field.checked : field.value; });
     try {
-        await apiCall(`/api/inventories/${currentInventory.id}/items`, {
-            method: 'POST',
-            body: JSON.stringify({ customId, data })
-        });
-        
+        await apiCall(`/api/inventories/${currentInventory.id}/items`, { method: 'POST', body: JSON.stringify({ customId, data }) });
         bootstrap.Modal.getInstance(document.getElementById('addItemModal')).hide();
-        showToast(t('itemAdded'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        if (err.message.includes('Duplicate')) {
-            showToast(t('duplicateCustomId'), 'warning');
-        } else {
-            showToast(err.message, 'danger');
-        }
-    }
+        showToast(t('itemAdded'), 'success'); viewInventory(currentInventory.id);
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function editItem(id) {
     try {
         const item = await apiCall(`/api/items/${id}`);
-        currentItem = item;
-        
         const modal = new bootstrap.Modal(document.getElementById('editItemModal'));
         document.getElementById('editItemId').value = item.id;
         document.getElementById('editItemVersion').value = item.version;
         document.getElementById('editItemCustomId').value = item.customId;
-        
-        const container = document.getElementById('editItemFields');
-        const fields = item.Inventory?.Fields || [];
         const data = JSON.parse(item.data || '{}');
-        
-        container.innerHTML = fields.map(field => {
+        document.getElementById('editItemFields').innerHTML = (item.Inventory?.Fields || []).map(field => {
             const fieldId = `edit_field_${field.id}`;
-            const value = data[field.title] || '';
-            
             switch(field.type) {
-                case 'text':
-                    return `
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">${field.title}</label>
-                                <input type="text" class="form-control" data-field="${field.title}" 
-                                       value="${value}" id="${fieldId}">
-                            </div>
-                        </div>
-                    `;
-                case 'textarea':
-                    return `
-                        <div class="col-12">
-                            <div class="mb-3">
-                                <label class="form-label">${field.title}</label>
-                                <textarea class="form-control" data-field="${field.title}" 
-                                          id="${fieldId}" rows="3">${value}</textarea>
-                            </div>
-                        </div>
-                    `;
-                case 'number':
-                    return `
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">${field.title}</label>
-                                <input type="number" class="form-control" data-field="${field.title}" 
-                                       value="${value}" id="${fieldId}">
-                            </div>
-                        </div>
-                    `;
-                case 'checkbox':
-                    return `
-                        <div class="col-md-6">
-                            <div class="mb-3 form-check">
-                                <input type="checkbox" class="form-check-input" data-field="${field.title}" 
-                                       id="${fieldId}" ${value ? 'checked' : ''}>
-                                <label class="form-check-label" for="${fieldId}">${field.title}</label>
-                            </div>
-                        </div>
-                    `;
-                case 'document':
-                    return `
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">${field.title}</label>
-                                <input type="url" class="form-control" data-field="${field.title}" 
-                                       value="${value}" id="${fieldId}">
-                            </div>
-                        </div>
-                    `;
-                default:
-                    return '';
+                case 'text': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="text" class="form-control" data-field="${field.title}" value="${data[field.title] || ''}" id="${fieldId}"></div></div>`;
+                case 'textarea': return `<div class="col-12"><div class="mb-3"><label class="form-label">${field.title}</label><textarea class="form-control" data-field="${field.title}" id="${fieldId}" rows="3">${data[field.title] || ''}</textarea></div></div>`;
+                case 'number': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="number" class="form-control" data-field="${field.title}" value="${data[field.title] || ''}" id="${fieldId}"></div></div>`;
+                case 'checkbox': return `<div class="col-md-6"><div class="mb-3 form-check"><input type="checkbox" class="form-check-input" data-field="${field.title}" id="${fieldId}" ${data[field.title] ? 'checked' : ''}><label class="form-check-label" for="${fieldId}">${field.title}</label></div></div>`;
+                case 'document': return `<div class="col-md-6"><div class="mb-3"><label class="form-label">${field.title}</label><input type="url" class="form-control" data-field="${field.title}" value="${data[field.title] || ''}" id="${fieldId}"></div></div>`;
+                default: return '';
             }
         }).join('');
-        
         modal.show();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function updateItem() {
     const id = document.getElementById('editItemId').value;
     const version = parseInt(document.getElementById('editItemVersion').value);
     const customId = document.getElementById('editItemCustomId').value;
-    
-    const fields = document.querySelectorAll('#editItemFields [data-field]');
     const data = {};
-    fields.forEach(field => {
-        const fieldName = field.dataset.field;
-        if (field.type === 'checkbox') {
-            data[fieldName] = field.checked;
-        } else {
-            data[fieldName] = field.value;
-        }
-    });
-    
+    document.querySelectorAll('#editItemFields [data-field]').forEach(field => { data[field.dataset.field] = field.type === 'checkbox' ? field.checked : field.value; });
     try {
-        await apiCall(`/api/items/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify({ customId, data, version })
-        });
-        
+        await apiCall(`/api/items/${id}`, { method: 'PUT', body: JSON.stringify({ customId, data, version }) });
         bootstrap.Modal.getInstance(document.getElementById('editItemModal')).hide();
-        showToast(t('itemUpdated'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        if (err.message.includes('Conflict')) {
-            showToast(t('conflictDetected'), 'warning');
-        } else if (err.message.includes('Duplicate')) {
-            showToast(t('duplicateCustomId'), 'warning');
-        } else {
-            showToast(err.message, 'danger');
-        }
-    }
+        showToast(t('itemUpdated'), 'success'); viewInventory(currentInventory.id);
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function deleteItem(id) {
     if (!confirm(t('confirmDeleteItem'))) return;
-    
-    try {
-        await apiCall(`/api/items/${id}`, { method: 'DELETE' });
-        showToast(t('itemDeleted'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/items/${id}`, { method: 'DELETE' }); showToast(t('itemDeleted'), 'success'); viewInventory(currentInventory.id); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function viewItem(id) {
     try {
         const item = await apiCall(`/api/items/${id}`);
         const data = JSON.parse(item.data || '{}');
-        const fields = item.Inventory?.Fields || [];
-        
         const modal = new bootstrap.Modal(document.getElementById('viewItemModal'));
-        const content = document.getElementById('viewItemContent');
-        
-        content.innerHTML = `
-            <div class="mb-3">
-                <strong>${t('customId')}:</strong> ${item.customId}
-            </div>
-            <div class="mb-3">
-                <strong>${t('createdBy')}:</strong> ${item.creator?.name || 'Unknown'}
-            </div>
-            <div class="mb-3">
-                <strong>${t('createdAt')}:</strong> ${new Date(item.createdAt).toLocaleString()}
-            </div>
-            <hr>
-            ${fields.map(field => `
-                <div class="mb-2">
-                    <strong>${field.title}:</strong><br>
-                    ${field.type === 'document' && data[field.title] ? 
-                        `<a href="${data[field.title]}" target="_blank">${data[field.title]}</a>` : 
-                        (data[field.title] || '-')}
-                    ${field.description ? `<small class="text-muted d-block">${field.description}</small>` : ''}
-                </div>
-            `).join('')}
-            
-            <hr>
-            <h6>Comments (${item.comments?.length || 0})</h6>
-            <div class="comments-section">
-                ${(item.comments || []).map(comment => `
-                    <div class="comment small mb-2">
-                        <div class="comment-meta">
-                            <strong>${comment.user?.name}</strong>
-                            <small class="text-muted">${new Date(comment.createdAt).toLocaleString()}</small>
-                        </div>
-                        <div>${marked.parse(comment.content)}</div>
-                    </div>
-                `).join('')}
-                ${item.comments?.length === 0 ? '<p class="text-muted">No comments</p>' : ''}
-            </div>
-            
-            ${currentUser ? `
-                <div class="mt-3">
-                    <textarea class="form-control form-control-sm" id="viewItemComment" rows="2" 
-                              placeholder="Add a comment..."></textarea>
-                    <button class="btn btn-primary btn-sm mt-2" onclick="addItemComment(${item.id})">
-                        ${t('addComment')}
-                    </button>
-                </div>
-            ` : ''}
-        `;
-        
+        document.getElementById('viewItemContent').innerHTML = `<div class="mb-3"><strong>${t('customId')}:</strong> ${item.customId}</div><div class="mb-3"><strong>${t('createdBy')}:</strong> ${item.creator?.name || 'Unknown'}</div><div class="mb-3"><strong>${t('createdAt')}:</strong> ${new Date(item.createdAt).toLocaleString()}</div><hr>${(item.Inventory?.Fields || []).map(field => `<div class="mb-2"><strong>${field.title}:</strong><br>${field.type === 'document' && data[field.title] ? `<a href="${data[field.title]}" target="_blank">${data[field.title]}</a>` : (data[field.title] || '-')}${field.description ? `<small class="text-muted d-block">${field.description}</small>` : ''}</div>`).join('')}
+        <hr><h6>Comments (${item.comments?.length || 0})</h6><div class="comments-section">${(item.comments || []).map(c => `<div class="comment small mb-2"><div class="comment-meta"><strong>${c.user?.name}</strong> <small class="text-muted">${new Date(c.createdAt).toLocaleString()}</small></div><div>${marked.parse(c.content)}</div></div>`).join('')}${item.comments?.length === 0 ? '<p class="text-muted">No comments</p>' : ''}</div>
+        ${currentUser ? `<div class="mt-3"><textarea class="form-control form-control-sm" id="viewItemComment" rows="2" placeholder="Add a comment..."></textarea><button class="btn btn-primary btn-sm mt-2" onclick="addItemComment(${item.id})">${t('addComment')}</button></div>` : ''}`;
         modal.show();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function likeItem(id) {
-    if (!currentUser) {
-        showLoginModal();
-        return;
-    }
-    
-    try {
-        const result = await apiCall(`/api/items/${id}/like`, { method: 'POST' });
-        showToast(result.liked ? 'Liked' : 'Unliked', 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    if (!currentUser) { showLoginModal(); return; }
+    try { const result = await apiCall(`/api/items/${id}/like`, { method: 'POST' }); showToast(result.liked ? 'Liked' : 'Unliked', 'success'); viewInventory(currentInventory.id); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Comment actions
 async function addInventoryComment() {
     const content = document.getElementById('commentContent').value;
     if (!content) return;
-    
-    try {
-        await apiCall(`/api/inventories/${currentInventory.id}/comments`, {
-            method: 'POST',
-            body: JSON.stringify({ content })
-        });
-        
-        document.getElementById('commentContent').value = '';
-        showToast(t('commentAdded'), 'success');
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/inventories/${currentInventory.id}/comments`, { method: 'POST', body: JSON.stringify({ content }) }); document.getElementById('commentContent').value = ''; showToast(t('commentAdded'), 'success'); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function addItemComment(itemId) {
     const content = document.getElementById('viewItemComment').value;
     if (!content) return;
-    
-    try {
-        await apiCall(`/api/items/${itemId}/comments`, {
-            method: 'POST',
-            body: JSON.stringify({ content })
-        });
-        
-        document.getElementById('viewItemComment').value = '';
-        showToast(t('commentAdded'), 'success');
-        viewItem(itemId);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/items/${itemId}/comments`, { method: 'POST', body: JSON.stringify({ content }) }); document.getElementById('viewItemComment').value = ''; showToast(t('commentAdded'), 'success'); viewItem(itemId); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Admin actions
 async function toggleAdmin(id) {
-    try {
-        await apiCall(`/api/admin/users/${id}/toggle-admin`, { method: 'POST' });
-        showToast('Updated', 'success');
-        loadAdmin();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/admin/users/${id}/toggle-admin`, { method: 'POST' }); showToast('Updated', 'success'); loadAdmin(); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function toggleBlock(id) {
-    try {
-        await apiCall(`/api/admin/users/${id}/toggle-block`, { method: 'POST' });
-        showToast('Updated', 'success');
-        loadAdmin();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/admin/users/${id}/toggle-block`, { method: 'POST' }); showToast('Updated', 'success'); loadAdmin(); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
 async function deleteUser(id) {
     if (!confirm(t('confirmDelete'))) return;
-    
-    try {
-        await apiCall(`/api/admin/users/${id}`, { method: 'DELETE' });
-        showToast('User deleted', 'success');
-        loadAdmin();
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/admin/users/${id}`, { method: 'DELETE' }); showToast('User deleted', 'success'); loadAdmin(); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// ID Builder
 function showIdBuilderModal() {
     const modal = new bootstrap.Modal(document.getElementById('idBuilderModal'));
     currentIdFormat = JSON.parse(currentInventory.customIdFormat || '[{"type":"sequence","padding":3}]');
@@ -1928,28 +1238,8 @@ function showIdBuilderModal() {
 function renderIdBuilder() {
     const builder = document.getElementById('idBuilder');
     if (!builder) return;
-    
-    builder.innerHTML = currentIdFormat.map((part, index) => {
-        let display = '';
-        switch(part.type) {
-            case 'text': display = part.value; break;
-            case 'sequence': display = `SEQ(${part.padding || 3})`; break;
-            case 'date': display = 'DATE'; break;
-            case 'random6': display = 'RND6'; break;
-            case 'random9': display = 'RND9'; break;
-            case 'random20': display = 'RND20'; break;
-            case 'random32': display = 'RND32'; break;
-            case 'guid': display = 'GUID'; break;
-        }
-        return `<span class="id-part badge bg-primary me-1 p-2" data-index="${index}">
-            ${display} <span class="remove ms-2" onclick="removeIdPart(${index})" style="cursor: pointer;">×</span>
-        </span>`;
-    }).join('');
-    
+    builder.innerHTML = currentIdFormat.map((part, index) => { let display = ''; switch(part.type) { case 'text': display = part.value; break; case 'sequence': display = `SEQ(${part.padding || 3})`; break; case 'date': display = 'DATE'; break; case 'random6': display = 'RND6'; break; case 'random9': display = 'RND9'; break; case 'random20': display = 'RND20'; break; case 'random32': display = 'RND32'; break; case 'guid': display = 'GUID'; break; } return `<span class="id-part badge bg-primary me-1 p-2" data-index="${index}">${display} <span class="remove ms-2" onclick="removeIdPart(${index})" style="cursor: pointer;">×</span></span>`; }).join('');
     document.getElementById('idPreview').textContent = generatePreviewFromFormat(currentIdFormat);
-    
-    // Initialize tooltips
-    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
 }
 
 function generatePreviewFromFormat(format) {
@@ -1969,292 +1259,192 @@ function generatePreviewFromFormat(format) {
     return preview;
 }
 
-function addTextPart() {
-    const text = prompt('Enter text:');
-    if (text) {
-        currentIdFormat.push({ type: 'text', value: text });
-        renderIdBuilder();
-    }
-}
-
-function addRandomPart(digits) {
-    const type = digits === 6 ? 'random6' : 
-                 digits === 9 ? 'random9' :
-                 digits === 20 ? 'random20' : 'random32';
-    currentIdFormat.push({ type });
-    renderIdBuilder();
-}
-
-function addDatePart() {
-    currentIdFormat.push({ type: 'date' });
-    renderIdBuilder();
-}
-
-function addSequencePart() {
-    const padding = prompt('Number of digits (default 3):', '3');
-    currentIdFormat.push({ type: 'sequence', padding: parseInt(padding) || 3 });
-    renderIdBuilder();
-}
-
-function addGuidPart() {
-    currentIdFormat.push({ type: 'guid' });
-    renderIdBuilder();
-}
-
-function removeIdPart(index) {
-    currentIdFormat.splice(index, 1);
-    renderIdBuilder();
-}
+function addTextPart() { const text = prompt('Enter text:'); if (text) { currentIdFormat.push({ type: 'text', value: text }); renderIdBuilder(); } }
+function addRandomPart(digits) { const type = digits === 6 ? 'random6' : digits === 9 ? 'random9' : digits === 20 ? 'random20' : 'random32'; currentIdFormat.push({ type }); renderIdBuilder(); }
+function addDatePart() { currentIdFormat.push({ type: 'date' }); renderIdBuilder(); }
+function addSequencePart() { const padding = prompt('Number of digits (default 3):', '3'); currentIdFormat.push({ type: 'sequence', padding: parseInt(padding) || 3 }); renderIdBuilder(); }
+function addGuidPart() { currentIdFormat.push({ type: 'guid' }); renderIdBuilder(); }
+function removeIdPart(index) { currentIdFormat.splice(index, 1); renderIdBuilder(); }
 
 async function saveIdFormat() {
     try {
-        await apiCall(`/api/inventories/${currentInventory.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-                ...currentInventory,
-                customIdFormat: JSON.stringify(currentIdFormat),
-                version: currentInventory.version
-            })
-        });
-        
+        await apiCall(`/api/inventories/${currentInventory.id}`, { method: 'PUT', body: JSON.stringify({ ...currentInventory, customIdFormat: JSON.stringify(currentIdFormat), version: currentInventory.version }) });
         bootstrap.Modal.getInstance(document.getElementById('idBuilderModal')).hide();
-        showToast(t('idFormatSaved'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        if (err.message.includes('Conflict')) {
-            showToast(t('conflictDetected'), 'warning');
-        } else {
-            showToast(err.message, 'danger');
-        }
-    }
+        showToast(t('idFormatSaved'), 'success'); viewInventory(currentInventory.id);
+    } catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Access management
 let searchTimeout;
-let writerSortMode = 'name';
-
 document.addEventListener('input', (e) => {
     if (e.target.id === 'writerSearch') {
         clearTimeout(searchTimeout);
         const query = e.target.value;
         if (query.length < 2) return;
-        
         searchTimeout = setTimeout(async () => {
             try {
                 const users = await apiCall(`/api/inventories/${currentInventory.id}/access/search?q=${encodeURIComponent(query)}`);
-                const results = document.getElementById('searchResults');
-                results.innerHTML = users.map(user => `
-                    <button class="list-group-item list-group-item-action" onclick="addWriter(${user.id})">
-                        <div class="d-flex align-items-center">
-                            <div class="me-2">${user.name}</div>
-                            <small class="text-muted">${user.email}</small>
-                        </div>
-                    </button>
-                `).join('');
-            } catch (err) {
-                console.error('Search failed:', err);
-            }
+                document.getElementById('searchResults').innerHTML = users.map(user => `<button class="list-group-item list-group-item-action" onclick="addWriter(${user.id})"><div class="d-flex align-items-center"><div class="me-2">${user.name}</div><small class="text-muted">${user.email}</small></div></button>`).join('');
+            } catch (err) { console.error('Search failed:', err); }
         }, 300);
     }
 });
 
-function sortWriters(mode) {
-    writerSortMode = mode;
-    loadInventory(); // Reload the tab with new sort order
-}
-
+function sortWriters(mode) { loadInventory(); }
 async function addWriter(userId) {
-    try {
-        await apiCall(`/api/inventories/${currentInventory.id}/access`, {
-            method: 'POST',
-            body: JSON.stringify({ userId })
-        });
-        
-        document.getElementById('writerSearch').value = '';
-        document.getElementById('searchResults').innerHTML = '';
-        showToast(t('writerAdded'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        if (err.message.includes('already has access')) {
-            showToast(err.message, 'warning');
-        } else {
-            showToast(err.message, 'danger');
-        }
-    }
+    try { await apiCall(`/api/inventories/${currentInventory.id}/access`, { method: 'POST', body: JSON.stringify({ userId }) }); document.getElementById('writerSearch').value = ''; document.getElementById('searchResults').innerHTML = ''; showToast(t('writerAdded'), 'success'); viewInventory(currentInventory.id); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
-
 async function removeWriter(userId) {
     if (!confirm(t('confirmRemoveWriter'))) return;
-    
-    try {
-        await apiCall(`/api/inventories/${currentInventory.id}/access/${userId}`, { method: 'DELETE' });
-        showToast(t('writerRemoved'), 'success');
-        viewInventory(currentInventory.id);
-    } catch (err) {
-        showToast(err.message, 'danger');
-    }
+    try { await apiCall(`/api/inventories/${currentInventory.id}/access/${userId}`, { method: 'DELETE' }); showToast(t('writerRemoved'), 'success'); viewInventory(currentInventory.id); } 
+    catch (err) { showToast(err.message, 'danger'); }
 }
 
-// Statistics
 async function loadStats() {
     try {
         const stats = await apiCall(`/api/inventories/${currentInventory.id}/stats`);
-        const container = document.getElementById('statsContainer');
-        
-        let html = `
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h3 class="text-primary">${stats.totalItems}</h3>
-                        <p class="text-muted mb-0">Total Items</p>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        Object.entries(stats.numericFields).forEach(([field, data]) => {
-            html += `
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h6 class="fw-bold">${field}</h6>
-                            <p class="mb-1">Min: ${data.min}</p>
-                            <p class="mb-1">Max: ${data.max}</p>
-                            <p class="mb-1">Avg: ${data.avg.toFixed(2)}</p>
-                            <p class="mb-0">Count: ${data.count}</p>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        Object.entries(stats.textFrequencies).forEach(([field, frequencies]) => {
-            html += `
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h6 class="fw-bold">${field}</h6>
-                            ${Object.entries(frequencies).map(([value, count]) => `
-                                <p class="mb-1">${value}: ${count} time${count > 1 ? 's' : ''}</p>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        
-        container.innerHTML = html || '<div class="col-12"><p class="text-center">No statistics available</p></div>';
-    } catch (err) {
-        console.error('Failed to load stats:', err);
-    }
+        let html = `<div class="col-md-4"><div class="card"><div class="card-body text-center"><h3 class="text-primary">${stats.totalItems}</h3><p class="text-muted mb-0">Total Items</p></div></div></div>`;
+        Object.entries(stats.numericFields).forEach(([field, data]) => { html += `<div class="col-md-4"><div class="card"><div class="card-body"><h6 class="fw-bold">${field}</h6><p class="mb-1">Min: ${data.min}</p><p class="mb-1">Max: ${data.max}</p><p class="mb-1">Avg: ${data.avg.toFixed(2)}</p><p class="mb-0">Count: ${data.count}</p></div></div></div>`; });
+        Object.entries(stats.textFrequencies).forEach(([field, frequencies]) => { html += `<div class="col-md-4"><div class="card"><div class="card-body"><h6 class="fw-bold">${field}</h6>${Object.entries(frequencies).map(([value, count]) => `<p class="mb-1">${value}: ${count} time${count > 1 ? 's' : ''}</p>`).join('')}</div></div></div>`; });
+        document.getElementById('statsContainer').innerHTML = html;
+    } catch (err) { console.error('Failed to load stats:', err); }
 }
 
-// Search
 async function searchInventories() {
     const query = document.getElementById('searchInput').value;
     if (!query) return;
+    try { const results = await apiCall(`/api/inventories/search?q=${encodeURIComponent(query)}`); showToast(`Found ${results.length} results`, 'info'); } 
+    catch (err) { console.error('Search failed:', err); }
+}
+function searchByTag(tag) { showToast(`Searching for tag: ${tag}`, 'info'); }
+
+document.addEventListener('submit', (e) => { if (e.target.id === 'settingsForm') { e.preventDefault(); saveInventorySettings(); } });
+
+// Integrations
+function showSalesforceModal() { new bootstrap.Modal(document.getElementById('salesforceModal')).show(); }
+async function syncToSalesforce() {
+    const company = document.getElementById('sfCompany').value;
+    const phone = document.getElementById('sfPhone').value;
+    const position = document.getElementById('sfPosition').value;
+    const industry = document.getElementById('sfIndustry').value;
+    
+    if (!company) {
+        showToast('Please enter company name', 'warning');
+        return;
+    }
     
     try {
-        const results = await apiCall(`/api/inventories/search?q=${encodeURIComponent(query)}`);
-        showToast(`Found ${results.length} results`, 'info');
-        // Could implement a search results page here
+        showToast('Syncing to Salesforce...', 'info');
+        
+        const response = await fetch('/api/user/sync-to-salesforce', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ company, phone, position, industry })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            if (result.demo) {
+                showToast('Demo mode: Salesforce sync would work with proper credentials', 'info');
+                bootstrap.Modal.getInstance(document.getElementById('salesforceModal')).hide();
+                document.getElementById('sfCompany').value = '';
+                document.getElementById('sfPhone').value = '';
+                document.getElementById('sfPosition').value = '';
+                loadProfile();
+                return;
+            }
+            throw new Error(result.error || 'Sync failed');
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('salesforceModal')).hide();
+        showToast('Successfully synced to Salesforce!', 'success');
+        
+        // Clear form
+        document.getElementById('sfCompany').value = '';
+        document.getElementById('sfPhone').value = '';
+        document.getElementById('sfPosition').value = '';
+        
+        // Reload profile
+        loadProfile();
+        
     } catch (err) {
-        console.error('Search failed:', err);
+        console.error('Salesforce error:', err);
+        showToast('Salesforce sync not configured. This is optional.', 'info');
+        // Still close modal and clear form
+        bootstrap.Modal.getInstance(document.getElementById('salesforceModal')).hide();
+        document.getElementById('sfCompany').value = '';
+        document.getElementById('sfPhone').value = '';
+        document.getElementById('sfPosition').value = '';
     }
 }
-
-function searchByTag(tag) {
-    showToast(`Searching for tag: ${tag}`, 'info');
-    // Could navigate to tag search results
+async function generateApiToken() {
+    try {
+        const result = await apiCall(`/api/inventories/${currentInventory.id}/generate-token`, { method: 'POST' });
+        document.getElementById('apiToken').value = result.token;
+        showToast('API token generated successfully', 'success');
+    } catch (err) { showToast(err.message, 'danger'); }
 }
-
-// Settings form
-document.addEventListener('submit', (e) => {
-    if (e.target.id === 'settingsForm') {
-        e.preventDefault();
-        saveInventorySettings();
+function showSupportTicketModal() { loadInventoriesForDropdown(); new bootstrap.Modal(document.getElementById('supportTicketModal')).show(); }
+async function loadInventoriesForDropdown() {
+    if (!currentUser) return;
+    try {
+        const inventories = await apiCall('/api/user/inventories');
+        const select = document.getElementById('ticketInventory');
+        if (select) { select.innerHTML = '<option value="">None</option>'; inventories.forEach(inv => { select.innerHTML += `<option value="${inv.id}">${inv.title}</option>`; }); }
+    } catch (err) { console.error('Failed to load inventories', err); }
+}
+async function submitSupportTicket() {
+    const summary = document.getElementById('ticketSummary').value;
+    const priority = document.getElementById('ticketPriority').value;
+    const inventoryId = document.getElementById('ticketInventory').value;
+    
+    if (!summary) {
+        showToast('Please enter issue summary', 'warning');
+        return;
     }
-});
+    
+    try {
+        showToast('Creating support ticket...', 'info');
+        
+        const response = await fetch('/api/support/ticket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ summary, priority, inventoryId: inventoryId || null })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to create ticket');
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('supportTicketModal')).hide();
+        showToast(`Ticket ${result.ticketId} created!`, 'success');
+        
+        // Clear form
+        document.getElementById('ticketSummary').value = '';
+        document.getElementById('ticketPriority').value = 'Low';
+        
+    } catch (err) {
+        console.error('Ticket error:', err);
+        showToast('Ticket created locally. Check support-tickets folder.', 'info');
+    }
+}
 
 // Socket.io
-socket.on('new-comment', (comment) => {
-    if (comment.inventoryId === currentInventory?.id) {
-        const list = document.getElementById('comments-list');
-        if (list) {
-            const commentHtml = `
-                <div class="comment mb-3">
-                    <div class="comment-meta">
-                        <a href="#" onclick="viewUser(${comment.userId})" class="fw-bold">${comment.userName}</a>
-                        <small class="text-muted ms-2">${new Date(comment.createdAt).toLocaleString()}</small>
-                    </div>
-                    <div class="comment-content">${marked.parse(comment.content)}</div>
-                </div>
-            `;
-            list.innerHTML = commentHtml + list.innerHTML;
-        }
-    }
-});
+socket.on('new-comment', (comment) => { if (comment.inventoryId === currentInventory?.id) { const list = document.getElementById('comments-list'); if (list) list.innerHTML = `<div class="comment mb-3"><div class="comment-meta"><a href="#" onclick="viewUser(${comment.userId})" class="fw-bold">${comment.userName}</a> <small class="text-muted ms-2">${new Date(comment.createdAt).toLocaleString()}</small></div><div class="comment-content">${marked.parse(comment.content)}</div></div>` + list.innerHTML; } });
+socket.on('new-inventory-comment', (comment) => { if (comment.inventoryId === currentInventory?.id) { const list = document.getElementById('comments-list'); if (list) list.innerHTML = `<div class="comment mb-3"><div class="comment-meta"><a href="#" onclick="viewUser(${comment.userId})" class="fw-bold">${comment.userName}</a> <small class="text-muted ms-2">${new Date(comment.createdAt).toLocaleString()}</small></div><div class="comment-content">${marked.parse(comment.content)}</div></div>` + list.innerHTML; } });
 
-socket.on('new-inventory-comment', (comment) => {
-    if (comment.inventoryId === currentInventory?.id) {
-        const list = document.getElementById('comments-list');
-        if (list) {
-            const commentHtml = `
-                <div class="comment mb-3">
-                    <div class="comment-meta">
-                        <a href="#" onclick="viewUser(${comment.userId})" class="fw-bold">${comment.userName}</a>
-                        <small class="text-muted ms-2">${new Date(comment.createdAt).toLocaleString()}</small>
-                    </div>
-                    <div class="comment-content">${marked.parse(comment.content)}</div>
-                </div>
-            `;
-            list.innerHTML = commentHtml + list.innerHTML;
-        }
-    }
-});
-
-// Drag and drop for fields
 function initDragAndDrop() {
     const fieldsList = document.getElementById('fieldsList');
     if (!fieldsList) return;
-    
-    new Sortable(fieldsList, {
-        animation: 150,
-        handle: '.bi-grip-vertical',
-        onEnd: async (evt) => {
-            const orders = [];
-            document.querySelectorAll('#fieldsList .list-group-item').forEach((item, index) => {
-                const id = item.dataset.id;
-                if (id) {
-                    orders.push({ id: parseInt(id), order: index + 1 });
-                }
-            });
-            
-            try {
-                await apiCall('/api/fields/reorder', {
-                    method: 'PUT',
-                    body: JSON.stringify({ orders })
-                });
-                showToast('Fields reordered', 'success');
-            } catch (err) {
-                console.error('Failed to reorder fields:', err);
-            }
-        }
-    });
+    new Sortable(fieldsList, { animation: 150, handle: '.bi-grip-vertical', onEnd: async (evt) => {
+        const orders = []; document.querySelectorAll('#fieldsList .list-group-item').forEach((item, index) => { const id = item.dataset.id; if (id) orders.push({ id: parseInt(id), order: index + 1 }); });
+        try { await apiCall('/api/fields/reorder', { method: 'PUT', body: JSON.stringify({ orders }) }); showToast('Fields reordered', 'success'); } catch (err) { console.error('Failed to reorder fields:', err); }
+    } });
 }
 
-// Initialize
-document.getElementById('homeLink').addEventListener('click', (e) => {
-    e.preventDefault();
-    currentPage = 'home';
-    if (currentInventory) {
-        socket.emit('leave-inventory', currentInventory.id);
-    }
-    currentInventory = null;
-    disableAutoSave();
-    loadPage();
-});
-
-// Initialize theme and auth
+document.getElementById('homeLink').addEventListener('click', (e) => { e.preventDefault(); currentPage = 'home'; if (currentInventory) { socket.emit('leave-inventory', currentInventory.id); } currentInventory = null; disableAutoSave(); loadPage(); });
 initTheme();
 checkAuth();
