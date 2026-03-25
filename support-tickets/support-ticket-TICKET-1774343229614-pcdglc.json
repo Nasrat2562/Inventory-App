@@ -1,1 +1,19 @@
-
+{
+  "ticketId": "TICKET-1774343229614-pcdglc",
+  "reportedBy": {
+    "id": 3,
+    "name": "Nasrat",
+    "email": "nasratj35@gmail.com"
+  },
+  "inventory": {
+    "id": 1,
+    "title": "Test "
+  },
+  "link": "http://localhost:3000/",
+  "priority": "High",
+  "summary": "Test",
+  "timestamp": "2026-03-24T09:07:09.614Z",
+  "admins": [
+    "admin@example.com"
+  ]
+}
