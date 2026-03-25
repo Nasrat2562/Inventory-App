@@ -23,11 +23,15 @@
     "pg": "^8.19.0",
     "sequelize": "^6.37.7",
     "socket.io": "^4.8.3",
-    "sqlite3": "^5.0.2"
+    "sqlite3": "^5.0.2",
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "crypto": "^1.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
   },
+
   "keywords": [],
   "author": "",
   "license": "ISC",
